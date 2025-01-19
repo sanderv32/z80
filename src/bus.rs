@@ -1,0 +1,87 @@
+#![allow(dead_code)]        // Remove this!
+use std::{mem::swap, u16};
+
+pub struct Bus {
+    ram: Vec<u8>,
+    rom: Option<Rom>,
+}
+
+struct Rom {
+    pub start: u16,
+    pub end: u16,
+}
+
+impl Bus {
+    /// Create new bus with memory
+    ///
+    /// Creates a new bus with `size` of memory in bytes.
+    pub fn new(size: u16) -> Self {
+        Self {
+            ram: vec![0; (size as usize)+1],
+            rom: None,
+        }
+    }
+
+    /// Set ROM range
+    ///
+    /// This sets the rom range and make memory between `start` and `end`
+    /// write only. First load the ROM contents on the location and then
+    /// use [set_rom].
+    pub fn set_rom(&mut self, mut start: u16, mut end: u16) {
+        if start > end {
+            swap(&mut start, &mut end);
+        }
+        self.rom = Some(Rom {start, end});
+    }
+
+    /// Read u8 value from `address`
+    pub fn read_mem(&self, address: u16) -> u8 {
+        self.ram[usize::from(address)]
+    }
+
+    /// Read u16 value from `address`
+    pub fn read_mem_u16(&self, address: u16) -> u16 {
+        u16::from(self.ram[usize::from(address)]) | u16::from(self.ram[usize::from(address+1)]) << 8
+    }
+
+    /// Write `value` to `address`
+    pub fn write_mem(&mut self, address: u16, value: u8) {
+        if self.rom.is_some()
+            && address >= self.rom.as_ref().unwrap().start
+            && address <= self.rom.as_ref().unwrap().end
+        {
+            return
+        }
+        self.ram[usize::from(address)] = value;
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::Bus;
+
+    #[test]
+    fn testing_bus() {
+        let mut bus = Bus::new(65535);
+        bus.write_mem(0xffff, 0xaa);
+        assert_eq!(bus.read_mem(0xffff), 0xaa);
+    }
+
+    #[test]
+    fn testing_rom() {
+        let mut bus = Bus::new(65535);
+        for addr in 0x1000..0x13ff {
+            bus.write_mem(addr, 1);
+        }
+        bus.set_rom(0x1000, 0x13ff);
+        bus.write_mem(0x1100, 2);
+        bus.write_mem(0x1100, 3);
+        bus.write_mem(0x13ff, 4);
+        bus.write_mem(0x1400, 5);
+        assert_ne!(bus.read_mem(0x1100), 2);
+        assert_ne!(bus.read_mem(0x1200), 3);
+        assert_ne!(bus.read_mem(0x13ff), 4);
+        assert_eq!(bus.read_mem(0x1400), 5);
+    }
+}
