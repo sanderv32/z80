@@ -38,7 +38,8 @@ pub struct Registers {
 impl Registers {
     pub fn new() -> Self {
         Self {
-        ..Default::default()
+            reg_f: Flags::new(),
+            ..Default::default()
         }
     }
 
@@ -49,6 +50,14 @@ impl Registers {
     pub fn set_af(&mut self, value: u16) {
         self.reg_a = ((value & 0xff00) >> 8) as u8;
         self.reg_f.from((value & 0xff) as u8);
+    }
+
+    pub fn get_sp(&self) -> u16 {
+        self.reg_sp
+    }
+
+    pub fn set_sp(&mut self, value: u16) {
+        self.reg_sp = value;
     }
 
     z80_reg_pair!(get_bc, set_bc, reg_b, reg_c);

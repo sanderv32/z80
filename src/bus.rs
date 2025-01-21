@@ -54,6 +54,20 @@ impl Bus {
         }
         self.ram[usize::from(address)] = value;
     }
+
+    /// Write u16 `value` to `address`
+    pub fn write_mem_u16(&mut self, address: u16, value: u16) {
+        if self.rom.is_some()
+            && address >= self.rom.as_ref().unwrap().start
+            && address <= self.rom.as_ref().unwrap().end
+        {
+            return
+        }
+        let lb = (value & 0xff) as u8;
+        let hb = ((value >> 8) & 0xff) as u8;
+        self.ram[usize::from(address)] = lb;
+        self.ram[usize::from(address+1)] = hb;
+    }
 }
 
 
