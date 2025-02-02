@@ -13,6 +13,7 @@ macro_rules! z80_reg_pair {
         }
     };
 }
+
 #[derive(Default)]
 pub struct Registers {
     // Main registers

@@ -116,6 +116,17 @@ impl Cpu {
         v
     }
 
+    fn adc16(&mut self, r1: u16, r2: u16) -> u16 {
+        let value = r1.wrapping_add(r2);
+        self.registers.reg_f.s = (value as i16) < 0;
+        self.registers.reg_f.z = value == 0;
+        self.registers.reg_f.h = (value & 0x0fff) + (r1 & 0x0fff) + (r2 & 0x0fff) > 0x0fff;
+        self.registers.reg_f.c = u32::from(r1) + u32::from(r2) + u32::from(r1) > 0xffff;
+        self.registers.reg_f.p = (r1 as i16).overflowing_add(value as i16).1;
+        self.registers.reg_f.n = false;
+        value
+    }
+
     /// Substract `r1` from register A
     ///
     /// r1: Register to substract from A
@@ -140,6 +151,25 @@ impl Cpu {
         self.registers.reg_a = value;
     }
 
+    fn sub16(&mut self, r1: u16, with_carry: bool) {
+        let carry: u16 = if with_carry {
+            match self.registers.reg_f.c {
+                true => 1,
+                false => 0,
+            }
+        } else {
+            0
+        };
+        let hl = self.registers.get_hl();
+        let value = hl.wrapping_sub(r1);
+        self.registers.reg_f.s = (value as i16) < 0;
+        self.registers.reg_f.z = value == 0;
+        self.registers.reg_f.h = (hl & 0x0fff) < (r1 & 0x0fff) + carry;
+        self.registers.reg_f.p = (hl as i16).overflowing_sub(value.wrapping_add(carry) as i16).1;
+        self.registers.reg_f.n = true;
+        self.registers.reg_f.c = hl < r1 + carry;
+    }
+
     fn and(&mut self, r1: u8) {
         let a = self.registers.reg_a;
         let value = a & r1;
@@ -158,6 +188,10 @@ impl Cpu {
         self.registers.reg_a = value;
     }
 
+    /// Compare register A with r1
+    ///
+    /// r1: Register to compare
+    /// Flags are set based on the result
     fn cp(&mut self, r1: u8) {
         let a = self.registers.reg_a;
         self.sub(r1, false);
@@ -270,6 +304,38 @@ impl Cpu {
 
     fn res(&mut self, bit: u8, r1: u8) -> u8 {
         r1 & !(1 << bit)
+    }
+
+    fn cpi(&mut self) {
+        let bc = self.registers.get_bc();
+        let hl = self.registers.get_hl();
+        let value = self.bus.read_mem(hl);
+        let result = self.registers.reg_a.wrapping_sub(value);
+
+        self.registers.set_hl(hl.wrapping_add(1));
+        self.registers.set_bc(bc.wrapping_sub(1));
+
+        self.registers.reg_f.s = (value as i8) < 0;
+        self.registers.reg_f.z = self.registers.reg_a == value;
+        self.registers.reg_f.h = (self.registers.reg_a as i8 & 0x0f) < (value as i8 & 0x0f);
+        self.registers.reg_f.p = self.registers.get_bc() != 0;
+        self.registers.reg_f.n = true;
+    }
+
+    fn cpd(&mut self) {
+        let bc = self.registers.get_bc();
+        let hl = self.registers.get_hl();
+        let value = self.bus.read_mem(hl);
+        let result = self.registers.reg_a.wrapping_sub(value);
+
+        self.registers.set_hl(hl.wrapping_sub(1));
+        self.registers.set_bc(bc.wrapping_sub(1));
+
+        self.registers.reg_f.s = (value as i8) < 0;
+        self.registers.reg_f.z = self.registers.reg_a == value;
+        self.registers.reg_f.h = (self.registers.reg_a as i8 & 0x0f) < (value as i8 & 0x0f);
+        self.registers.reg_f.p = self.registers.get_bc() != 0;
+        self.registers.reg_f.n = true;
     }
 
     pub fn ex_op(&mut self) -> u16 {
@@ -1053,7 +1119,9 @@ impl Cpu {
                 }
             },
             0xcb => {
+                pc += 1; // skip 0xcb opcode
                 let opcode = self.bus.read_mem(pc);
+                pc += 1;
                 match opcode {
                     0x00 => {// rlc b
                         self.rlc(self.registers.reg_b);
@@ -1990,6 +2058,7 @@ impl Cpu {
                 pc += 2;
             },
             0xdd => {
+                pc += 1; // Skip 0xdd opcode
                 let opcode = self.bus.read_mem(pc);
                 pc += 1;
                 match opcode {
@@ -2176,6 +2245,7 @@ impl Cpu {
                         pc += 1;
                     },
                     0xcb => {
+                        pc += 1; // Skip 0xcb opcode
                         let opcode = self.bus.read_mem(pc);
                         pc += 1;
                         match opcode {
@@ -2474,7 +2544,9 @@ impl Cpu {
                 }
             },
             0xed => {
+                pc += 1; // Skip 0xED opcode
                 let opcode = self.bus.read_mem(pc);
+                pc += 1;
                 match opcode {
                     0x40 => {// in b,(c)
                         // TODO
@@ -2484,9 +2556,7 @@ impl Cpu {
                     },
                     0x42 => {// sbc hl,bc
                         let bc = self.registers.get_bc();
-                        let hl = self.registers.get_hl();
-                        let value = self.sub(hl, bc);
-                        self.registers.set_hl(value);
+                        self.sub16(bc, true);
                     },
                     0x43 => {// ld (nn),bc
                         let nn = self.bus.read_mem_u16(pc);
@@ -2498,11 +2568,14 @@ impl Cpu {
                         self.registers.reg_a = a as u8;
                     },
                     0x45 => {// retn
+                        self.iff1 = self.iff2;
+                        self.pop_stack();
                     },
                     0x46 => {// im 0
                         self.im = 0;
                     },
                     0x47 => {// ld i,a
+                        self.registers.reg_i = self.registers.reg_a;
                     },
                     0x48 => {// in c,(c)
                         // TODO
@@ -2511,6 +2584,10 @@ impl Cpu {
                         // TODO
                     },
                     0x4a => {// adc hl,bc
+                        let hl = self.registers.get_hl();
+                        let bc = self.registers.get_bc();
+                        let value = self.adc16(hl, bc);
+                        self.registers.set_hl(value);
                     },
                     0x4b => {// ld bc,(nn)
                         let nn = self.bus.read_mem_u16(pc);
@@ -2518,6 +2595,7 @@ impl Cpu {
                         pc += 2;
                     },
                     0x4d => {// reti
+                        self.pop_stack();
                     },
                     0x50 => {// in d,(c)
                         // TODO
@@ -2526,6 +2604,8 @@ impl Cpu {
                         // TODO
                     },
                     0x52 => {// sbc hl,de
+                        let de = self.registers.get_de();
+                        self.sub16(de, true);
                     },
                     0x53 => {// ld (nn),de
                         let nn = self.bus.read_mem_u16(pc);
@@ -2536,6 +2616,7 @@ impl Cpu {
                         self.im = 1;
                     },
                     0x57 => {// ld a,i
+                        self.registers.reg_a = self.registers.reg_i;
                     },
                     0x58 => {// in e,(c)
                         // TODO
@@ -2544,6 +2625,10 @@ impl Cpu {
                         // TODO
                     },
                     0x5a => {// adc hl,de
+                        let hl = self.registers.get_hl();
+                        let de = self.registers.get_de();
+                        let value = self.adc16(hl, de);
+                        self.registers.set_hl(value);
                     },
                     0x5b => {// ld de,(nn)
                         let nn = self.bus.read_mem_u16(pc);
@@ -2560,8 +2645,14 @@ impl Cpu {
                         // TODO
                     },
                     0x62 => {// sbc hl,hl
+                        let hl = self.registers.get_hl();
+                        self.sub16(hl, true);
                     },
                     0x67 => {// rrd
+                        let value = self.bus.read_mem(self.registers.get_hl());
+                        let a = self.registers.reg_a;
+                        self.registers.reg_a = (a & 0xf0) | (value & 0x0f);
+                        self.bus.write_mem(self.registers.get_hl(), (a << 4) | (value >> 4));
                     },
                     0x68 => {// in l,(c)
                         // TODO
@@ -2570,10 +2661,19 @@ impl Cpu {
                         // TODO
                     },
                     0x6a => {// adc hl,hl
+                        let hl = self.registers.get_hl();
+                        let value = self.adc16(hl, hl);
+                        self.registers.set_hl(value);
                     },
                     0x6f => {// rld
+                        let value = self.bus.read_mem(self.registers.get_hl());
+                        let a = self.registers.reg_a;
+                        self.registers.reg_a = (value >> 4) | (a & 0xf0);
+                        self.bus.write_mem(self.registers.get_hl(), (value << 4) | (a & 0x0f));
                     },
                     0x72 => {// sbc hl,sp
+                        let sp = self.registers.get_sp();
+                        self.sub16(sp, true);
                     },
                     0x73 => {// ld (nn),sp
                         let nn = self.bus.read_mem_u16(pc);
@@ -2587,6 +2687,10 @@ impl Cpu {
                         // TODO
                     },
                     0x7a => {// adc hl,sp
+                        let hl = self.registers.get_hl();
+                        let sp = self.registers.get_sp();
+                        let value = self.adc16(hl, sp);
+                        self.registers.set_hl(value);
                     },
                     0x7b => {// ld sp,(nn)
                         let nn = self.bus.read_mem_u16(pc);
@@ -2594,47 +2698,101 @@ impl Cpu {
                         pc += 2;
                     },
                     0xa0 => {// ldi
+                        let hl = self.registers.get_hl();
+                        let de = self.registers.get_de();
+                        let bc = self.registers.get_bc();
+                        let value = self.bus.read_mem(self.registers.get_hl());
+                        self.bus.write_mem(self.registers.get_de(), value);
+                        self.registers.set_hl(hl.wrapping_add(1));
+                        self.registers.set_de(de.wrapping_add(1));
+                        self.registers.set_bc(bc.wrapping_sub(1));
+                        // TODO: Implement correct flags
                     },
                     0xa1 => {// cpi
+                        self.cpi();
                     },
                     0xa2 => {// ini
-                        // TODO
+                        // TODO: Implement input
                     },
                     0xa3 => {// outi
-                        // TODO
+                        // TODO: Implement output
                     },
                     0xa8 => {// ldd
+                        let hl = self.registers.get_hl();
+                        let de = self.registers.get_de();
+                        let bc = self.registers.get_bc();
+                        let value = self.bus.read_mem(self.registers.get_hl());
+                        self.bus.write_mem(self.registers.get_de(), value);
+                        self.registers.set_hl(hl.wrapping_sub(1));
+                        self.registers.set_de(de.wrapping_sub(1));
+                        self.registers.set_bc(bc.wrapping_sub(1));
+                        // TODO: Implement correct flags
                     },
                     0xa9 => {// cpd
+                        self.cpd();
                     },
                     0xaa => {// ind
-                        // TODO
+                        // TODO: Implement input
                     },
                     0xab => {// outd
-                        // TODO
+                        // TODO: Implement output
                     },
                     0xb0 => {// ldir
+                        let mut hl = self.registers.get_hl();
+                        let mut de = self.registers.get_de();
+                        let mut bc = self.registers.get_bc();
+                        while bc > 0 {
+                            let value = self.bus.read_mem(hl);
+                            self.bus.write_mem(de, value);
+                            hl = hl.wrapping_add(1);
+                            de = de.wrapping_add(1);
+                            bc = bc.wrapping_sub(1);
+                        }
+                        // TODO: Implement correct flags
                     },
                     0xb1 => {// cpir
+                        while self.registers.get_bc() > 0 {
+                            self.cpi();
+                            if self.registers.reg_f.z {
+                                break;
+                            }
+                        }
                     },
                     0xb2 => {// inir
-                        // TODO
+                        // TODO: Implement input
                     },
                     0xb3 => {// otir
-                        // TODO
+                        // TODO: Implement output
                     },
                     0xb8 => {// lddr
+                        let mut hl = self.registers.get_hl();
+                        let mut de = self.registers.get_de();
+                        let mut bc = self.registers.get_bc();
+                        while bc > 0 {
+                            let value = self.bus.read_mem(hl);
+                            self.bus.write_mem(de, value);
+                            hl = hl.wrapping_sub(1);
+                            de = de.wrapping_sub(1);
+                            bc = bc.wrapping_sub(1);
+                        }
                     },
                     0xb9 => {// cpdr
+                        while self.registers.get_bc() > 0 {
+                            self.cpd();
+                            if self.registers.reg_f.z {
+                                break;
+                            }
+                        }
                     },
                     0xba => {// indr
-                        // TODO
+                        // TODO: Implement input
                     },
                     0xbb => {// otdr
-                        // TODO
+                        // TODO: Implement output
                     },
                     _ => {
                         // Illegal opcode
+                        panic!("Illegal opcode {:x}", self.registers.reg_pc);
                     }
                 }
             },
@@ -2656,6 +2814,12 @@ impl Cpu {
                 self.registers.reg_sp += 2;
             },
             0xf2 => {// jp p,$+3
+                if self.registers.reg_f.s == false {
+                    let value = self.bus.read_mem_u16(pc);
+                    self.registers.reg_pc = value;
+                } else {
+                    pc += 2;
+                }
             },
             0xf3 => {// di
                 self.interrupts_enabled = false;
@@ -2682,15 +2846,28 @@ impl Cpu {
                 }
             },
             0xf9 => {// ld sp,hl
+                let hl = self.registers.get_hl();
+                self.registers.set_sp(hl);
             },
             0xfa => {// jp m,$+3
+                if self.registers.reg_f.s == true {
+                    let value = self.bus.read_mem_u16(pc);
+                    self.registers.reg_pc = value;
+                } else {
+                    pc += 2;
+                }
             },
             0xfb => {// ei
                 self.interrupts_enabled = true;
             },
             0xfc => {// call m,nn
-                let value = self.bus.read_mem_u16(pc);
-                // PC +=  n  n
+                if self.registers.reg_f.s == true {
+                    let nn = self.bus.read_mem_u16(pc);
+                    self.push_stack(self.registers.reg_pc);
+                    self.registers.reg_pc = nn;
+                } else {
+                    pc += 2;
+                }
             },
             0xfd => {
                 let opcode = self.bus.read_mem(pc);
@@ -2736,15 +2913,24 @@ impl Cpu {
                         self.registers.set_iy(iy);
                     },
                     0x34 => {// inc (iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.bus.write_mem(iy + n as u16, value + 1);
                         pc += 1;
                     },
                     0x35 => {// dec (iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.bus.write_mem(iy + n as u16, value - 1);
                         pc += 1;
                     },
                     0x36 => {// ld (iy+n),n
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(pc + 1);
+                        self.bus.write_mem(iy + n as u16, value);
                         pc += 2;
                     },
                     0x39 => {// add iy,sp
@@ -2754,91 +2940,109 @@ impl Cpu {
                         self.registers.set_iy(value);
                     },
                     0x46 => {// ld b,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.registers.reg_b = value;
                         pc += 1;
                     },
                     0x4e => {// ld c,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.registers.reg_c = value;
                         pc += 1;
                     },
                     0x56 => {// ld d,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.registers.reg_d = value;
                         pc += 1;
                     },
                     0x5e => {// ld e,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.registers.reg_e = value;
                         pc += 1;
                     },
                     0x66 => {// ld h,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.registers.reg_h = value;
                         pc += 1;
                     },
                     0x6e => {// ld l,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.registers.reg_l = value;
                         pc += 1;
                     },
                     0x70 => {// ld (iy+n),b
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x71 => {// ld (iy+n),c
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x72 => {// ld (iy+n),d
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x73 => {// ld (iy+n),e
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x74 => {// ld (iy+n),h
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x75 => {// ld (iy+n),l
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x77 => {// ld (iy+n),a
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x7e => {// ld a,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x86 => {// add a,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x8e => {// adc a,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x96 => {// sub (iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0x9e => {// sbc a,(iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0xa6 => {// and (iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0xae => {// xor (iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0xb6 => {// or (iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
                     0xbe => {// cp (iy+n)
-                        let value = self.bus.read_mem(pc);
+                        let n = self.bus.read_mem(pc);
                         pc += 1;
                     },
 
