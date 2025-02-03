@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 
 use crate::registers::Registers;
+use crate::registers::Regs;
 use crate::bus::Bus;
 
 pub struct Cpu {
@@ -23,6 +24,11 @@ pub struct Cpu {
     pub iff2: bool,
 }
 
+enum Type {
+    Direct(u16),
+    Register(Regs),
+}
+
 impl Cpu {
     /// Create new Cpu instance
     ///
@@ -42,6 +48,46 @@ impl Cpu {
             interrupts_enabled: true,
             iff1: false,
             iff2: false,
+        }
+    }
+
+    fn get_value(&self, t: &Type) -> u8 {
+        match t {
+            Type::Direct(addr) => self.bus.read_mem(*addr),
+            Type::Register(reg) => self.get_register_value(reg),
+        }
+    }
+
+    fn get_register_value(&self, reg: &Regs) -> u8 {
+        match reg {
+            Regs::A => self.registers.reg_a,
+            Regs::B => self.registers.reg_b,
+            Regs::C => self.registers.reg_c,
+            Regs::D => self.registers.reg_d,
+            Regs::E => self.registers.reg_e,
+            Regs::H => self.registers.reg_h,
+            Regs::L => self.registers.reg_l,
+            _ => 0,
+        }
+    }
+
+    fn set_value(&mut self, t: &Type, value: u8) {
+        match t {
+            Type::Direct(addr) => self.bus.write_mem(*addr, value),
+            Type::Register(reg) => self.set_register_value(reg, value),
+        }
+    }
+
+    fn set_register_value(&mut self, reg: &Regs, value: u8) {
+        match reg {
+            Regs::A => self.registers.reg_a = value,
+            Regs::B => self.registers.reg_b = value,
+            Regs::C => self.registers.reg_c = value,
+            Regs::D => self.registers.reg_d = value,
+            Regs::E => self.registers.reg_e = value,
+            Regs::H => self.registers.reg_h = value,
+            Regs::L => self.registers.reg_l = value,
+            _ => (),
         }
     }
 
@@ -208,92 +254,143 @@ impl Cpu {
         self.bus.write_mem_u16(self.registers.reg_sp, value);
     }
 
-    fn rlc(&mut self, r1: u8) {
+    // TODO: Remove this
+    // fn rlc(&mut self, r1: u8) {
+    //     let carry = match self.registers.reg_f.c {
+    //         true => 1,
+    //         false => 0,
+    //     };
+    //     self.registers.reg_f.c = r1 & 0x80 == 0x80;
+    //     self.registers.reg_f.h = false;
+    //     self.registers.reg_f.n = false;
+    //     self.registers.reg_f.z = r1 == 0;
+    //     self.registers.reg_f.s = (r1 as i8) < 0;
+    //     self.registers.reg_a = r1 << 1 | carry >> 7;
+    // }
+
+    /// Rotate left carry direct
+    fn rlc(&mut self, t: Type) {
         let carry = match self.registers.reg_f.c {
             true => 1,
             false => 0,
         };
+        let r1 = self.get_value(&t);
         self.registers.reg_f.c = r1 & 0x80 == 0x80;
         self.registers.reg_f.h = false;
         self.registers.reg_f.n = false;
         self.registers.reg_f.z = r1 == 0;
         self.registers.reg_f.s = (r1 as i8) < 0;
-        self.registers.reg_a = r1 << 1 | carry >> 7;
+        self.set_value(&t, r1 << 1 | carry >> 7);
     }
 
-    fn rrc(&mut self, r1: u8) {
+    // TODO: Remove this
+    // fn rrc(&mut self, r1: u8) {
+    //     let carry = match self.registers.reg_f.c {
+    //         true => 1,
+    //         false => 0,
+    //     };
+    //     self.registers.reg_f.c = r1 & 0x01 == 0x01;
+    //     self.registers.reg_f.h = false;
+    //     self.registers.reg_f.n = false;
+    //     self.registers.reg_f.z = r1 == 0;
+    //     self.registers.reg_f.s = (r1 as i8) < 0;
+    //     self.registers.reg_a = r1 >> 1 | carry << 7;
+    // }
+
+    fn rrc(&mut self, t: Type) {
         let carry = match self.registers.reg_f.c {
             true => 1,
             false => 0,
         };
+        let r1 = self.get_value(&t);
         self.registers.reg_f.c = r1 & 0x01 == 0x01;
         self.registers.reg_f.h = false;
         self.registers.reg_f.n = false;
         self.registers.reg_f.z = r1 == 0;
         self.registers.reg_f.s = (r1 as i8) < 0;
-        self.registers.reg_a = r1 >> 1 | carry << 7;
+        self.set_value(&t, r1 >> 1 | carry << 7);
     }
 
-    fn rl(&mut self, r1: u8) {
+    // TODO: Remove this
+    // fn rl(&mut self, r1: u8) {
+    //     let carry = match self.registers.reg_f.c {
+    //         true => 1,
+    //         false => 0,
+    //     };
+    //     self.registers.reg_f.c = r1 & 0x80 == 0x80;
+    //     self.registers.reg_f.h = false;
+    //     self.registers.reg_f.n = false;
+    //     self.registers.reg_f.z = r1 == 0;
+    //     self.registers.reg_f.s = (r1 as i8) < 0;
+    //     self.registers.reg_a = r1 << 1 | carry;
+    // }
+
+    fn rl(&mut self, t: Type) {
         let carry = match self.registers.reg_f.c {
             true => 1,
             false => 0,
         };
+        let r1 = self.get_value(&t);
         self.registers.reg_f.c = r1 & 0x80 == 0x80;
         self.registers.reg_f.h = false;
         self.registers.reg_f.n = false;
         self.registers.reg_f.z = r1 == 0;
         self.registers.reg_f.s = (r1 as i8) < 0;
-        self.registers.reg_a = r1 << 1 | carry;
+        self.set_value(&t, r1 << 1 | carry);
     }
 
-    fn rr(&mut self, r1: u8) {
+    fn rr(&mut self, t: Type) {
         let carry = match self.registers.reg_f.c {
             true => 1,
             false => 0,
         };
+        let r1 = self.get_value(&t);
         self.registers.reg_f.c = r1 & 0x01 == 0x01;
         self.registers.reg_f.h = false;
         self.registers.reg_f.n = false;
         self.registers.reg_f.z = r1 == 0;
         self.registers.reg_f.s = (r1 as i8) < 0;
-        self.registers.reg_a = r1 >> 1 | carry;
+        self.set_value(&t, r1 >> 1 | carry);
     }
 
-    fn sla(&mut self, r1: u8) {
+    fn sla(&mut self, t: Type) {
+        let r1 = self.get_value(&t);
         self.registers.reg_f.c = r1 & 0x80 == 0x80;
         self.registers.reg_f.h = false;
         self.registers.reg_f.n = false;
         self.registers.reg_f.z = r1 == 0;
         self.registers.reg_f.s = (r1 as i8) < 0;
-        self.registers.reg_a = r1 << 1;
+        self.set_value(&t, r1 << 1);
     }
 
-    fn sll(&mut self, r1: u8) {
+    fn sll(&mut self, t: Type) {
+        let r1 = self.get_value(&t);
         self.registers.reg_f.c = r1 & 0x80 == 0x80;
         self.registers.reg_f.h = false;
         self.registers.reg_f.n = false;
         self.registers.reg_f.z = r1 == 0;
         self.registers.reg_f.s = (r1 as i8) < 0;
-        self.registers.reg_a = r1 << 1 | 1;
+        self.set_value(&t, r1 << 1 | 1);
     }
 
-    fn sra(&mut self, r1: u8) {
+    fn sra(&mut self, t: Type) {
+        let r1 = self.get_value(&t);
         self.registers.reg_f.c = r1 & 0x01 == 0x01;
         self.registers.reg_f.h = false;
         self.registers.reg_f.n = false;
         self.registers.reg_f.z = r1 == 0;
         self.registers.reg_f.s = (r1 as i8) < 0;
-        self.registers.reg_a = r1 >> 1 | r1 & 0x80;
+        self.set_value(&t, r1 >> 1 | r1 & 0x80);
     }
 
-    fn srl(&mut self, r1: u8) {
+    fn srl(&mut self, t: Type) {
+        let r1 = self.get_value(&t);
         self.registers.reg_f.c = r1 & 0x80 == 0x80;
         self.registers.reg_f.h = false;
         self.registers.reg_f.n = false;
         self.registers.reg_f.z = r1 == 0;
         self.registers.reg_f.s = (r1 as i8) < 0;
-        self.registers.reg_a = r1 >> 1;
+        self.set_value(&t, r1 >> 1);
     }
 
     fn bit(&mut self, bit: u8, r1: u8) {
@@ -304,6 +401,10 @@ impl Cpu {
 
     fn res(&mut self, bit: u8, r1: u8) -> u8 {
         r1 & !(1 << bit)
+    }
+
+    fn set(&mut self, bit: u8, r1: u8) -> u8 {
+        r1 | (1 << bit)
     }
 
     fn cpi(&mut self) {
@@ -338,7 +439,11 @@ impl Cpu {
         self.registers.reg_f.n = true;
     }
 
-    pub fn ex_op(&mut self) -> u16 {
+    /// Execute opcode at current program counter
+    ///
+    /// Return:
+    /// pc: New program counter
+    pub fn exec_opcode(&mut self) -> u16 {
         let pc = self.registers.reg_pc;
         let opcode = self.bus.read_mem(pc);
         let mut pc = pc+1;
@@ -1124,212 +1229,206 @@ impl Cpu {
                 pc += 1;
                 match opcode {
                     0x00 => {// rlc b
-                        self.rlc(self.registers.reg_b);
+                        self.rlc(Type::Register(Regs::B));
                     },
                     0x01 => {// rlc c
-                        self.rlc(self.registers.reg_c);
+                        self.rlc(Type::Register(Regs::C));
                     },
                     0x02 => {// rlc d
-                        self.rlc(self.registers.reg_d);
+                        self.rlc(Type::Register(Regs::D));
                     },
                     0x03 => {// rlc e
-                        self.rlc(self.registers.reg_e);
+                        self.rlc(Type::Register(Regs::E));
                     },
                     0x04 => {// rlc h
-                        self.rlc(self.registers.reg_h);
+                        self.rlc(Type::Register(Regs::H));
                     },
                     0x05 => {// rlc l
-                        self.rlc(self.registers.reg_l);
+                        self.rlc(Type::Register(Regs::L));
                     },
                     0x06 => {// rlc (hl)
-                        let hl = self.bus.read_mem(self.registers.get_hl());
-                        self.rlc(hl);
-                        self.bus.write_mem(self.registers.get_hl(), hl);
+                        let addr = self.registers.get_hl();
+                        let hl = self.bus.read_mem(addr);
+                        self.rlc(Type::Direct(addr));
                     },
                     0x07 => {// rlc a
-                        self.rlc(self.registers.reg_a);
+                        self.rlc(Type::Register(Regs::A));
                     },
                     0x08 => {// rrc b
-                        self.rrc(self.registers.reg_b);
+                        self.rrc(Type::Register(Regs::B));
                     },
                     0x09 => {// rrc c
-                        self.rrc(self.registers.reg_c);
+                        self.rrc(Type::Register(Regs::C));
                     },
                     0x0a => {// rrc d
-                        self.rrc(self.registers.reg_d);
+                        self.rrc(Type::Register(Regs::D));
                     },
                     0x0b => {// rrc e
-                        self.rrc(self.registers.reg_e);
+                        self.rrc(Type::Register(Regs::E));
                     },
                     0x0c => {// rrc h
-                        self.rrc(self.registers.reg_h);
+                        self.rrc(Type::Register(Regs::H));
                     },
                     0x0d => {// rrc l
-                        self.rrc(self.registers.reg_l);
+                        self.rrc(Type::Register(Regs::L));
                     },
                     0x0e => {// rrc (hl)
-                        let hl = self.bus.read_mem(self.registers.get_hl());
-                        self.rrc(hl);
-                        self.bus.write_mem(self.registers.get_hl(), hl);
+                        let addr = self.registers.get_hl();
+                        let hl = self.bus.read_mem(addr);
+                        self.rrc(Type::Direct(addr));
                     },
                     0x0f => {// rrc a
-                        self.rrc(self.registers.reg_a);
+                        self.rrc(Type::Register(Regs::A));
                     },
                     0x10 => {// rl  b
-                        self.rl(self.registers.reg_b);
+                        self.rl(Type::Register(Regs::B));
                     },
                     0x11 => {// rl  c
-                        self.rl(self.registers.reg_c);
+                        self.rl(Type::Register(Regs::C));
                     },
                     0x12 => {// rl  d
-                        self.rl(self.registers.reg_d);
+                        self.rl(Type::Register(Regs::D));
                     },
                     0x13 => {// rl  e
-                        self.rl(self.registers.reg_e);
+                        self.rl(Type::Register(Regs::E));
                     },
                     0x14 => {// rl  h
-                        self.rl(self.registers.reg_h);
+                        self.rl(Type::Register(Regs::H));
                     },
                     0x15 => {// rl  l
-                        self.rl(self.registers.reg_l);
+                        self.rl(Type::Register(Regs::L));
                     },
                     0x16 => {// rl  (hl)
-                        let hl = self.bus.read_mem(self.registers.get_hl());
-                        self.rl(hl);
-                        self.bus.write_mem(self.registers.get_hl(), hl);
+                        let hl = self.registers.get_hl();
+                        self.rl(Type::Direct(hl));
                     },
                     0x17 => {// rl  a
-                        self.rl(self.registers.reg_a);
+                        self.rl(Type::Register(Regs::A));
                     },
                     0x18 => {// rr  b
-                        self.rr(self.registers.reg_b);
+                        self.rr(Type::Register(Regs::B));
                     },
                     0x19 => {// rr  c
-                        self.rr(self.registers.reg_c);
+                        self.rr(Type::Register(Regs::C));
                     },
                     0x1a => {// rr  d
-                        self.rr(self.registers.reg_d);
+                        self.rr(Type::Register(Regs::D));
                     },
                     0x1b => {// rr  e
-                        self.rr(self.registers.reg_e);
+                        self.rr(Type::Register(Regs::E));
                     },
                     0x1c => {// rr  h
-                        self.rr(self.registers.reg_h);
+                        self.rr(Type::Register(Regs::H));
                     },
                     0x1d => {// rr  l
-                        self.rr(self.registers.reg_l);
+                        self.rr(Type::Register(Regs::L));
                     },
                     0x1e => {// rr  (hl)
-                        let hl = self.bus.read_mem(self.registers.get_hl());
-                        self.rr(hl);
-                        self.bus.write_mem(self.registers.get_hl(), hl);
+                        let hl = self.registers.get_hl();
+                        self.rr(Type::Direct(hl));
                     },
                     0x1f => {// rr  a
-                        self.rr(self.registers.reg_a);
+                        self.rr(Type::Register(Regs::A));
                     },
                     0x20 => {// sla b
-                        self.sla(self.registers.reg_b);
+                        self.sla(Type::Register(Regs::B));
                     },
                     0x21 => {// sla c
-                        self.sla(self.registers.reg_c);
+                        self.sla(Type::Register(Regs::C));
                     },
                     0x22 => {// sla d
-                        self.sla(self.registers.reg_d);
+                        self.sla(Type::Register(Regs::D));
                     },
                     0x23 => {// sla e
-                        self.sla(self.registers.reg_e);
+                        self.sla(Type::Register(Regs::E));
                     },
                     0x24 => {// sla h
-                        self.sla(self.registers.reg_h);
+                        self.sla(Type::Register(Regs::H));
                     },
                     0x25 => {// sla l
-                        self.sla(self.registers.reg_l);
+                        self.sla(Type::Register(Regs::L));
                     },
                     0x26 => {// sla (hl)
-                        let hl = self.bus.read_mem(self.registers.get_hl());
-                        self.sla(hl);
-                        self.bus.write_mem(self.registers.get_hl(), hl);
+                        let hl = self.registers.get_hl();
+                        self.sla(Type::Direct(hl));
                     },
                     0x27 => {// sla a
-                        self.sla(self.registers.reg_a);
+                        self.sla(Type::Register(Regs::A));
                     },
                     0x28 => {// sra b
-                        self.sra(self.registers.reg_b);
+                        self.sra(Type::Register(Regs::B));
                     },
                     0x29 => {// sra c
-                        self.sra(self.registers.reg_c);
+                        self.sra(Type::Register(Regs::C));
                     },
                     0x2a => {// sra d
-                        self.sra(self.registers.reg_d);
+                        self.sra(Type::Register(Regs::D));
                     },
                     0x2b => {// sra e
-                        self.sra(self.registers.reg_e);
+                        self.sra(Type::Register(Regs::E));
                     },
                     0x2c => {// sra h
-                        self.sra(self.registers.reg_h);
+                        self.sra(Type::Register(Regs::H));
                     },
                     0x2d => {// sra l
-                        self.sra(self.registers.reg_l);
+                        self.sra(Type::Register(Regs::L));
                     },
                     0x2e => {// sra (hl)
-                        let hl = self.bus.read_mem(self.registers.get_hl());
-                        self.sra(hl);
-                        self.bus.write_mem(self.registers.get_hl(), hl);
+                        let hl = self.registers.get_hl();
+                        self.sra(Type::Direct(hl));
                     },
                     0x2f => {// sra a
-                        self.sra(self.registers.reg_a);
+                        self.sra(Type::Register(Regs::A));
                     },
                     0x30 => {// sll b
-                        self.sll(self.registers.reg_b);
+                        self.sll(Type::Register(Regs::B));
                     },
                     0x31 => {// sll c
-                        self.sll(self.registers.reg_c);
+                        self.sll(Type::Register(Regs::C));
                     },
                     0x32 => {// sll d
-                        self.sll(self.registers.reg_d);
+                        self.sll(Type::Register(Regs::D));
                     },
                     0x33 => {// sll e
-                        self.sll(self.registers.reg_e);
+                        self.sll(Type::Register(Regs::E));
                     },
                     0x34 => {// sll h
-                        self.sll(self.registers.reg_h);
+                        self.sll(Type::Register(Regs::H));
                     },
                     0x35 => {// sll l
-                        self.sll(self.registers.reg_l);
+                        self.sll(Type::Register(Regs::L));
                     },
                     0x36 => {// sll (hl)
-                        let hl = self.bus.read_mem(self.registers.get_hl());
-                        self.sll(hl);
-                        self.bus.write_mem(self.registers.get_hl(), hl);
+                        let hl = self.registers.get_hl();
+                        self.sll(Type::Direct(hl));
                     },
                     0x37 => {// sll a
-                        self.sll(self.registers.reg_a);
+                        self.sll(Type::Register(Regs::A));
                     },
                     0x38 => {// srl b
-                        self.srl(self.registers.reg_b);
+                        self.srl(Type::Register(Regs::B));
                     },
                     0x39 => {// srl c
-                        self.srl(self.registers.reg_c);
+                        self.srl(Type::Register(Regs::C));
                     },
                     0x3a => {// srl d
-                        self.srl(self.registers.reg_d);
+                        self.srl(Type::Register(Regs::D));
                     },
                     0x3b => {// srl e
-                        self.srl(self.registers.reg_e);
+                        self.srl(Type::Register(Regs::E));
                     },
                     0x3c => {// srl h
-                        self.srl(self.registers.reg_h);
+                        self.srl(Type::Register(Regs::H));
                     },
                     0x3d => {// srl l
-                        self.srl(self.registers.reg_l);
+                        self.srl(Type::Register(Regs::L));
                     },
                     0x3e => {// srl (hl)
-                        let hl = self.bus.read_mem(self.registers.get_hl());
-                        self.srl(hl);
-                        self.bus.write_mem(self.registers.get_hl(), hl);
+                        let hl = self.registers.get_hl();
+                        self.srl(Type::Direct(hl));
                     },
                     0x3f => {// srl a
-                        self.srl(self.registers.reg_a);
+                        self.srl(Type::Register(Regs::A));
                     },
                     0x40 => {// bit 0,b
                         self.bit(0, self.registers.reg_b);
@@ -2251,38 +2350,38 @@ impl Cpu {
                         match opcode {
                             0x06 => {// rlc (ix+n)
                                 let n = self.bus.read_mem(pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.rlc(value);
+                                let ix = self.registers.get_ix();
+                                self.rlc(Type::Direct(ix + n as u16));
                                 pc += 1;
                             },
                             0x0e => {// rrc (ix+n)
                                 let n = self.bus.read_mem(pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.rrc(value);
+                                let ix = self.registers.get_ix();
+                                self.rrc(Type::Direct(ix + n as u16));
                                 pc += 1;
                             },
                             0x16 => {// rl (ix+n)
                                 let n = self.bus.read_mem(pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.rl(value);
+                                let ix = self.registers.get_ix();
+                                self.rl(Type::Direct(ix + n as u16));
                                 pc += 1;
                             },
                             0x1e => {// rr (ix+n)
                                 let n = self.bus.read_mem(pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.rr(value);
+                                let ix = self.registers.get_ix();
+                                self.rr(Type::Direct(ix + n as u16));
                                 pc += 1;
                             },
                             0x26 => {// sla (ix+n)
                                 let n = self.bus.read_mem(pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.sla(value);
+                                let ix = self.registers.get_ix();
+                                self.sla(Type::Direct(ix + n as u16));
                                 pc += 1;
                             },
                             0x2e => {// sra (ix+n)
                                 let n = self.bus.read_mem(pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.sra(value);
+                                let ix = self.registers.get_ix();
+                                self.sra(Type::Direct(ix + n as u16));
                                 pc += 1;
                             },
                             0x46 => {// bit 0,(ix+n)
@@ -2983,162 +3082,238 @@ impl Cpu {
                     },
                     0x70 => {// ld (iy+n),b
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        self.bus.write_mem(iy + n as u16, self.registers.reg_b);
                         pc += 1;
                     },
                     0x71 => {// ld (iy+n),c
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        self.bus.write_mem(iy + n as u16, self.registers.reg_c);
                         pc += 1;
                     },
                     0x72 => {// ld (iy+n),d
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        self.bus.write_mem(iy + n as u16, self.registers.reg_d);
                         pc += 1;
                     },
                     0x73 => {// ld (iy+n),e
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        self.bus.write_mem(iy + n as u16, self.registers.reg_e);
                         pc += 1;
                     },
                     0x74 => {// ld (iy+n),h
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        self.bus.write_mem(iy + n as u16, self.registers.reg_h);
                         pc += 1;
                     },
                     0x75 => {// ld (iy+n),l
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        self.bus.write_mem(iy + n as u16, self.registers.reg_l);
                         pc += 1;
                     },
                     0x77 => {// ld (iy+n),a
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        self.bus.write_mem(iy + n as u16, self.registers.reg_a);
                         pc += 1;
                     },
                     0x7e => {// ld a,(iy+n)
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.registers.reg_a = value;
                         pc += 1;
                     },
                     0x86 => {// add a,(iy+n)
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.add(value, false);
                         pc += 1;
                     },
                     0x8e => {// adc a,(iy+n)
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.add(value, true);
                         pc += 1;
                     },
                     0x96 => {// sub (iy+n)
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.sub(value, false);
                         pc += 1;
                     },
                     0x9e => {// sbc a,(iy+n)
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.sub(value, true);
                         pc += 1;
                     },
                     0xa6 => {// and (iy+n)
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.and(value);
                         pc += 1;
                     },
                     0xae => {// xor (iy+n)
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.xor(value);
                         pc += 1;
                     },
                     0xb6 => {// or (iy+n)
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.or(value);
                         pc += 1;
                     },
                     0xbe => {// cp (iy+n)
                         let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        self.cp(value);
                         pc += 1;
                     },
-
                     0xcb => {
-                        let value = self.bus.read_mem(pc+1);
-                        let opcode = self.bus.read_mem(pc+2);
+                        let n = self.bus.read_mem(pc);
+                        let iy = self.registers.get_iy();
+                        let value = self.bus.read_mem(iy + n as u16);
+                        let opcode = self.bus.read_mem(pc+1);
+                        pc += 2;
                         match opcode {
+                            // TODO: This needs to be done again
                             0x06 => {// rlc (iy+n)
-                                pc += 1;
+                                self.rlc(Type::Direct(iy + n as u16));
                             },
                             0x0e => {// rrc (iy+n)
-                                pc += 1;
+                                self.rrc(Type::Direct(iy + n as u16));
                             },
                             0x16 => {// rl (iy+n)
-                                pc += 1;
+                                self.rl(Type::Direct(iy + n as u16));
                             },
                             0x1e => {// rr (iy+n)
-                                pc += 1;
+                                self.rr(Type::Direct(iy + n as u16));
                             },
                             0x26 => {// sla (iy+n)
-                                pc += 1;
+                                self.sla(Type::Direct(iy + n as u16));
                             },
                             0x2e => {// sra (iy+n)
-                                pc += 1;
+                                self.sra(Type::Direct(iy + n as u16));
                             },
                             0x46 => {// bit 0,(iy+n)
-                                pc += 1;
+                                self.bit(0, self.bus.read_mem(iy + n as u16));
                             },
                             0x4e => {// bit 1,(iy+n)
-                                pc += 1;
+                                self.bit(1, self.bus.read_mem(iy + n as u16));
                             },
                             0x56 => {// bit 2,(iy+n)
-                                pc += 1;
+                                self.bit(2, self.bus.read_mem(iy + n as u16));
                             },
                             0x5e => {// bit 3,(iy+n)
-                                pc += 1;
+                                self.bit(3, self.bus.read_mem(iy + n as u16));
                             },
                             0x66 => {// bit 4,(iy+n)
-                                pc += 1;
+                                self.bit(4, self.bus.read_mem(iy + n as u16));
                             },
                             0x6e => {// bit 5,(iy+n)
-                                pc += 1;
+                                self.bit(5, self.bus.read_mem(iy + n as u16));
                             },
                             0x76 => {// bit 6,(iy+n)
-                                pc += 1;
+                                self.bit(6, self.bus.read_mem(iy + n as u16));
                             },
                             0x7e => {// bit 7,(iy+n)
-                                pc += 1;
+                                self.bit(7, self.bus.read_mem(iy + n as u16));
                             },
                             0x86 => {// res 0,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.res(0, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0x8e => {// res 1,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.res(1, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0x96 => {// res 2,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.res(2, value);
+                                self.bus.write_mem(iy + n as u16, value);
                             },
                             0x9e => {// res 3,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.res(3, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xa6 => {// res 4,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.res(4, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xae => {// res 5,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.res(5, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xb6 => {// res 6,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.res(6, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xbe => {// res 7,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.res(7, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xc6 => {// set 0,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.set(0, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xce => {// set 1,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.set(1, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xd6 => {// set 2,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.set(2, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xde => {// set 3,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.set(3, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xe6 => {// set 4,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.set(4, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xee => {// set 5,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.set(5, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xf6 => {// set 6,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.set(6, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             0xfe => {// set 7,(iy+n)
-                                pc += 1;
+                                let value = self.bus.read_mem(iy + n as u16);
+                                let result = self.set(7, value);
+                                self.bus.write_mem(iy + n as u16, result);
                             },
                             _ => {
                                 // Illegal opcode
@@ -3160,6 +3335,8 @@ impl Cpu {
                         self.bus.write_mem_u16(self.registers.reg_sp, self.registers.get_iy());
                     },
                     0xe9 => {// jp (iy)
+                        let iy = self.bus.read_mem_u16(self.registers.get_iy());
+                        self.registers.reg_pc = iy;
                     },
                     0xf9 => {// ld sp,iy
                         self.registers.reg_sp = self.registers.get_iy();

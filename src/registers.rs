@@ -14,6 +14,22 @@ macro_rules! z80_reg_pair {
     };
 }
 
+pub enum Regs {
+    A,
+    B,
+    C,
+    D,
+    E,
+    H,
+    L,
+    BC,
+    DE,
+    HL,
+    IX,
+    IY,
+    SP,
+}
+
 #[derive(Default)]
 pub struct Registers {
     // Main registers
