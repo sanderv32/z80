@@ -1,9 +1,15 @@
-#![allow(dead_code)]        // Remove this!
+#![allow(dead_code)] // TODO: Remove this!
 use std::{mem::swap, u16};
+
+pub trait Io {
+    fn write_io(&mut self, address: u16, value: u8);
+    fn read_io(&self, address: u16) -> u8;
+}
 
 pub struct Bus {
     ram: Vec<u8>,
     rom: Option<Rom>,
+    io: Vec<Option<fn(u8) -> u8>>,
 }
 
 struct Rom {
@@ -17,8 +23,9 @@ impl Bus {
     /// Creates a new bus with `size` of memory in bytes.
     pub fn new(size: u16) -> Self {
         Self {
-            ram: vec![0; (size as usize)+1],
+            ram: vec![0; (size as usize) + 1],
             rom: None,
+            io: [None; 256].to_vec(),
         }
     }
 
@@ -31,7 +38,7 @@ impl Bus {
         if start > end {
             swap(&mut start, &mut end);
         }
-        self.rom = Some(Rom {start, end});
+        self.rom = Some(Rom { start, end });
     }
 
     /// Read u8 value from `address`
@@ -41,7 +48,8 @@ impl Bus {
 
     /// Read u16 value from `address`
     pub fn read_mem_u16(&self, address: u16) -> u16 {
-        u16::from(self.ram[usize::from(address)]) | u16::from(self.ram[usize::from(address+1)]) << 8
+        u16::from(self.ram[usize::from(address)])
+            | u16::from(self.ram[usize::from(address + 1)]) << 8
     }
 
     /// Write `value` to `address`
@@ -50,7 +58,7 @@ impl Bus {
             && address >= self.rom.as_ref().unwrap().start
             && address <= self.rom.as_ref().unwrap().end
         {
-            return
+            return;
         }
         self.ram[usize::from(address)] = value;
     }
@@ -61,15 +69,29 @@ impl Bus {
             && address >= self.rom.as_ref().unwrap().start
             && address <= self.rom.as_ref().unwrap().end
         {
-            return
+            return;
         }
         let lb = (value & 0xff) as u8;
         let hb = ((value >> 8) & 0xff) as u8;
         self.ram[usize::from(address)] = lb;
-        self.ram[usize::from(address+1)] = hb;
+        self.ram[usize::from(address + 1)] = hb;
+    }
+
+    /// Register IO port
+    pub fn register_io(&mut self, address: u8, cb: fn(u8) -> u8) {
+        self.io[address as usize] = Some(cb);
+    }
+
+    /// Read value from IO port
+    pub fn read_io(&self, address: u8) -> u8 {
+        self.io[address as usize].unwrap()(address)
+    }
+
+    /// Write value to IO port
+    pub fn write_io(&mut self, address: u8, value: u8) {
+        self.io[address as usize].unwrap()(value);
     }
 }
-
 
 #[cfg(test)]
 mod tests {
