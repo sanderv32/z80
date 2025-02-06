@@ -1,5 +1,4 @@
 #![allow(dead_code)] // TODO: Remove this!
-use std::{mem::swap, u16};
 
 pub trait Io {
     fn write_io(&mut self, address: u16, value: u8);
@@ -9,7 +8,7 @@ pub trait Io {
 pub struct Bus {
     ram: Vec<u8>,
     rom: Option<Rom>,
-    io: Vec<Option<fn(u8) -> u8>>,
+    io: Vec<u8>,
 }
 
 struct Rom {
@@ -25,7 +24,7 @@ impl Bus {
         Self {
             ram: vec![0; (size as usize) + 1],
             rom: None,
-            io: [None; 256].to_vec(),
+            io: vec![0; 256],
         }
     }
 
@@ -36,7 +35,9 @@ impl Bus {
     /// use [set_rom].
     pub fn set_rom(&mut self, mut start: u16, mut end: u16) {
         if start > end {
-            swap(&mut start, &mut end);
+            let tmp = start;
+            start = end;
+            end = tmp;
         }
         self.rom = Some(Rom { start, end });
     }
@@ -77,20 +78,8 @@ impl Bus {
         self.ram[usize::from(address + 1)] = hb;
     }
 
-    /// Register IO port
-    pub fn register_io(&mut self, address: u8, cb: fn(u8) -> u8) {
-        self.io[address as usize] = Some(cb);
-    }
-
-    /// Read value from IO port
-    pub fn read_io(&self, address: u8) -> u8 {
-        self.io[address as usize].unwrap()(address)
-    }
-
-    /// Write value to IO port
-    pub fn write_io(&mut self, address: u8, value: u8) {
-        self.io[address as usize].unwrap()(value);
-    }
+    // TODO: Build IO stuff
+    //
 }
 
 #[cfg(test)]

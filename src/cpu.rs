@@ -93,7 +93,7 @@ impl Cpu {
 
     fn abs(value: u8) -> u8 {
         if value & 0x80 == 0x80 {
-            (0x100 - value as u16 & 0x007f) as u8
+            ((0x100 - value as u16) & 0x007f) as u8
         } else {
             value
         }
@@ -484,7 +484,7 @@ impl Cpu {
                 self.registers.reg_f.h = false;
                 self.registers.reg_f.n = false;
                 self.registers.reg_f.c = self.registers.reg_a & 0x80 == 0x80;
-                self.registers.reg_a = self.registers.reg_a << 1;
+                self.registers.reg_a <<= 1;
             }
             0x08 => {
                 // ex af,af'
@@ -582,7 +582,7 @@ impl Cpu {
                 self.registers.reg_f.h = false;
                 self.registers.reg_f.n = false;
                 self.registers.reg_f.c = self.registers.reg_a & 0x80 == 0x80;
-                self.registers.reg_a = self.registers.reg_a << 1;
+                self.registers.reg_a <<= 1;
             }
             0x18 => {
                 // jr $+2
@@ -637,7 +637,7 @@ impl Cpu {
             }
             0x20 => {
                 // jr nz,$+2
-                if self.registers.reg_f.z == false {
+                if !self.registers.reg_f.z {
                     let value = self.bus.read_mem(pc + 1);
                     if value & 0x80 == 0x80 {
                         self.registers.reg_pc = self.registers.reg_pc + 1 - Cpu::abs(value) as u16;
@@ -683,7 +683,7 @@ impl Cpu {
             }
             0x28 => {
                 // jr z,$+2
-                if self.registers.reg_f.z == true {
+                if self.registers.reg_f.z {
                     let value = self.bus.read_mem(pc + 1);
                     if value & 0x80 == 0x80 {
                         self.registers.reg_pc = self.registers.reg_pc + 1 - Cpu::abs(value) as u16;
@@ -731,7 +731,7 @@ impl Cpu {
             }
             0x30 => {
                 // jr nc,$+2
-                if self.registers.reg_f.c == false {
+                if !self.registers.reg_f.c {
                     let value = self.bus.read_mem(pc + 1);
                     if value & 0x80 == 0x80 {
                         self.registers.reg_pc = self.registers.reg_pc + 1 - Cpu::abs(value) as u16;
@@ -783,7 +783,7 @@ impl Cpu {
             }
             0x38 => {
                 // jr c,$+2
-                if self.registers.reg_f.c == true {
+                if self.registers.reg_f.c {
                     let value = self.bus.read_mem(pc + 1);
                     if value & 0x80 == 0x80 {
                         self.registers.reg_pc = self.registers.reg_pc + 1 - Cpu::abs(value) as u16;
@@ -1351,7 +1351,7 @@ impl Cpu {
             }
             0xc0 => {
                 // ret nz
-                if self.registers.reg_f.z == false {
+                if !self.registers.reg_f.z {
                     self.pop_stack();
                 }
             }
@@ -1364,7 +1364,7 @@ impl Cpu {
             0xc2 => {
                 // jp nz,$+3
                 let value = self.bus.read_mem_u16(pc);
-                if self.registers.reg_f.z == false {
+                if !self.registers.reg_f.z {
                     self.registers.reg_pc = value;
                 } else {
                     pc += 2;
@@ -1377,7 +1377,7 @@ impl Cpu {
             0xc4 => {
                 // call nz,nn
                 let value = self.bus.read_mem_u16(pc);
-                if self.registers.reg_f.z == false {
+                if !self.registers.reg_f.z {
                     self.registers.reg_pc = value;
                 } else {
                     pc += 2
@@ -1401,7 +1401,7 @@ impl Cpu {
             }
             0xc8 => {
                 // ret z
-                if self.registers.reg_f.z == true {
+                if self.registers.reg_f.z {
                     self.pop_stack();
                 }
             }
@@ -1411,7 +1411,7 @@ impl Cpu {
             }
             0xca => {
                 // jp z,$+3
-                if self.registers.reg_f.z == true {
+                if self.registers.reg_f.z {
                     let value = self.bus.read_mem_u16(pc);
                     self.registers.reg_pc = value;
                 } else {
@@ -1963,27 +1963,27 @@ impl Cpu {
                     }
                     0x80 => {
                         // res 0,b
-                        self.registers.reg_b = self.registers.reg_b & 0xfe;
+                        self.registers.reg_b &= 0xfe;
                     }
                     0x81 => {
                         // res 0,c
-                        self.registers.reg_c = self.registers.reg_c & 0xfe;
+                        self.registers.reg_c &= 0xfe;
                     }
                     0x82 => {
                         // res 0,d
-                        self.registers.reg_d = self.registers.reg_d & 0xfe;
+                        self.registers.reg_d &= 0xfe;
                     }
                     0x83 => {
                         // res 0,e
-                        self.registers.reg_e = self.registers.reg_e & 0xfe;
+                        self.registers.reg_e &= 0xfe;
                     }
                     0x84 => {
                         // res 0,h
-                        self.registers.reg_h = self.registers.reg_h & 0xfe;
+                        self.registers.reg_h &= 0xfe;
                     }
                     0x85 => {
                         // res 0,l
-                        self.registers.reg_l = self.registers.reg_l & 0xfe;
+                        self.registers.reg_l &= 0xfe;
                     }
                     0x86 => {
                         // res 0,(hl)
@@ -1992,31 +1992,31 @@ impl Cpu {
                     }
                     0x87 => {
                         // res 0,a
-                        self.registers.reg_a = self.registers.reg_a & 0xfe;
+                        self.registers.reg_a &= 0xfe;
                     }
                     0x88 => {
                         // res 1,b
-                        self.registers.reg_b = self.registers.reg_b & 0xfd;
+                        self.registers.reg_b &= 0xfd;
                     }
                     0x89 => {
                         // res 1,c
-                        self.registers.reg_c = self.registers.reg_c & 0xfd;
+                        self.registers.reg_c &= 0xfd;
                     }
                     0x8a => {
                         // res 1,d
-                        self.registers.reg_d = self.registers.reg_d & 0xfd;
+                        self.registers.reg_d &= 0xfd;
                     }
                     0x8b => {
                         // res 1,e
-                        self.registers.reg_e = self.registers.reg_e & 0xfd;
+                        self.registers.reg_e &= 0xfd;
                     }
                     0x8c => {
                         // res 1,h
-                        self.registers.reg_h = self.registers.reg_h & 0xfd;
+                        self.registers.reg_h &= 0xfd;
                     }
                     0x8d => {
                         // res 1,l
-                        self.registers.reg_l = self.registers.reg_l & 0xfd;
+                        self.registers.reg_l &= 0xfd;
                     }
                     0x8e => {
                         // res 1,(hl)
@@ -2025,31 +2025,31 @@ impl Cpu {
                     }
                     0x8f => {
                         // res 1,a
-                        self.registers.reg_a = self.registers.reg_a & 0xfd;
+                        self.registers.reg_a &= 0xfd;
                     }
                     0x90 => {
                         // res 2,b
-                        self.registers.reg_b = self.registers.reg_b & 0xfb;
+                        self.registers.reg_b &= 0xfb;
                     }
                     0x91 => {
                         // res 2,c
-                        self.registers.reg_c = self.registers.reg_c & 0xfb;
+                        self.registers.reg_c &= 0xfb;
                     }
                     0x92 => {
                         // res 2,d
-                        self.registers.reg_d = self.registers.reg_d & 0xfb;
+                        self.registers.reg_d &= 0xfb;
                     }
                     0x93 => {
                         // res 2,e
-                        self.registers.reg_e = self.registers.reg_e & 0xfb;
+                        self.registers.reg_e &= 0xfb;
                     }
                     0x94 => {
                         // res 2,h
-                        self.registers.reg_h = self.registers.reg_h & 0xfb;
+                        self.registers.reg_h &= 0xfb;
                     }
                     0x95 => {
                         // res 2,l
-                        self.registers.reg_l = self.registers.reg_l & 0xfb;
+                        self.registers.reg_l &= 0xfb;
                     }
                     0x96 => {
                         // res 2,(hl)
@@ -2058,31 +2058,31 @@ impl Cpu {
                     }
                     0x97 => {
                         // res 2,a
-                        self.registers.reg_a = self.registers.reg_a & 0xfb;
+                        self.registers.reg_a &= 0xfb;
                     }
                     0x98 => {
                         // res 3,b
-                        self.registers.reg_b = self.registers.reg_b & 0xf7;
+                        self.registers.reg_b &= 0xf7;
                     }
                     0x99 => {
                         // res 3,c
-                        self.registers.reg_c = self.registers.reg_c & 0xf7;
+                        self.registers.reg_c &= 0xf7;
                     }
                     0x9a => {
                         // res 3,d
-                        self.registers.reg_d = self.registers.reg_d & 0xf7;
+                        self.registers.reg_d &= 0xf7;
                     }
                     0x9b => {
                         // res 3,e
-                        self.registers.reg_e = self.registers.reg_e & 0xf7;
+                        self.registers.reg_e &= 0xf7;
                     }
                     0x9c => {
                         // res 3,h
-                        self.registers.reg_h = self.registers.reg_h & 0xf7;
+                        self.registers.reg_h &= 0xf7;
                     }
                     0x9d => {
                         // res 3,l
-                        self.registers.reg_l = self.registers.reg_l & 0xf7;
+                        self.registers.reg_l &= 0xf7;
                     }
                     0x9e => {
                         // res 3,(hl)
@@ -2091,31 +2091,31 @@ impl Cpu {
                     }
                     0x9f => {
                         // res 3,a
-                        self.registers.reg_a = self.registers.reg_a & 0xf7;
+                        self.registers.reg_a &= 0xf7;
                     }
                     0xa0 => {
                         // res 4,b
-                        self.registers.reg_b = self.registers.reg_b & 0xef;
+                        self.registers.reg_b &= 0xef;
                     }
                     0xa1 => {
                         // res 4,c
-                        self.registers.reg_c = self.registers.reg_c & 0xef;
+                        self.registers.reg_c &= 0xef;
                     }
                     0xa2 => {
                         // res 4,d
-                        self.registers.reg_d = self.registers.reg_d & 0xef;
+                        self.registers.reg_d &= 0xef;
                     }
                     0xa3 => {
                         // res 4,e
-                        self.registers.reg_e = self.registers.reg_e & 0xef;
+                        self.registers.reg_e &= 0xef;
                     }
                     0xa4 => {
                         // res 4,h
-                        self.registers.reg_h = self.registers.reg_h & 0xef;
+                        self.registers.reg_h &= 0xef;
                     }
                     0xa5 => {
                         // res 4,l
-                        self.registers.reg_l = self.registers.reg_l & 0xef;
+                        self.registers.reg_l &= 0xef;
                     }
                     0xa6 => {
                         // res 4,(hl)
@@ -2124,31 +2124,31 @@ impl Cpu {
                     }
                     0xa7 => {
                         // res 4,a
-                        self.registers.reg_a = self.registers.reg_a & 0xef;
+                        self.registers.reg_a &= 0xef;
                     }
                     0xa8 => {
                         // res 5,b
-                        self.registers.reg_b = self.registers.reg_b & 0xdf;
+                        self.registers.reg_b &= 0xdf;
                     }
                     0xa9 => {
                         // res 5,c
-                        self.registers.reg_c = self.registers.reg_c & 0xdf;
+                        self.registers.reg_c &= 0xdf;
                     }
                     0xaa => {
                         // res 5,d
-                        self.registers.reg_d = self.registers.reg_d & 0xdf;
+                        self.registers.reg_d &= 0xdf;
                     }
                     0xab => {
                         // res 5,e
-                        self.registers.reg_e = self.registers.reg_e & 0xdf;
+                        self.registers.reg_e &= 0xdf;
                     }
                     0xac => {
                         // res 5,h
-                        self.registers.reg_h = self.registers.reg_h & 0xdf;
+                        self.registers.reg_h &= 0xdf;
                     }
                     0xad => {
                         // res 5,l
-                        self.registers.reg_l = self.registers.reg_l & 0xdf;
+                        self.registers.reg_l &= 0xdf;
                     }
                     0xae => {
                         // res 5,(hl)
@@ -2157,31 +2157,31 @@ impl Cpu {
                     }
                     0xaf => {
                         // res 5,a
-                        self.registers.reg_a = self.registers.reg_a & 0xdf;
+                        self.registers.reg_a &= 0xdf;
                     }
                     0xb0 => {
                         // res 6,b
-                        self.registers.reg_b = self.registers.reg_b & 0xbf;
+                        self.registers.reg_b &= 0xbf;
                     }
                     0xb1 => {
                         // res 6,c
-                        self.registers.reg_c = self.registers.reg_c & 0xbf;
+                        self.registers.reg_c &= 0xbf;
                     }
                     0xb2 => {
                         // res 6,d
-                        self.registers.reg_d = self.registers.reg_d & 0xbf;
+                        self.registers.reg_d &= 0xbf;
                     }
                     0xb3 => {
                         // res 6,e
-                        self.registers.reg_e = self.registers.reg_e & 0xbf;
+                        self.registers.reg_e &= 0xbf;
                     }
                     0xb4 => {
                         // res 6,h
-                        self.registers.reg_h = self.registers.reg_h & 0xbf;
+                        self.registers.reg_h &= 0xbf;
                     }
                     0xb5 => {
                         // res 6,l
-                        self.registers.reg_l = self.registers.reg_l & 0xbf;
+                        self.registers.reg_l &= 0xbf;
                     }
                     0xb6 => {
                         // res 6,(hl)
@@ -2190,31 +2190,31 @@ impl Cpu {
                     }
                     0xb7 => {
                         // res 6,a
-                        self.registers.reg_a = self.registers.reg_a & 0xbf;
+                        self.registers.reg_a &= 0xbf;
                     }
                     0xb8 => {
                         // res 7,b
-                        self.registers.reg_b = self.registers.reg_b & 0x7f;
+                        self.registers.reg_b &= 0x7f;
                     }
                     0xb9 => {
                         // res 7,c
-                        self.registers.reg_c = self.registers.reg_c & 0x7f;
+                        self.registers.reg_c &= 0x7f;
                     }
                     0xba => {
                         // res 7,d
-                        self.registers.reg_d = self.registers.reg_d & 0x7f;
+                        self.registers.reg_d &= 0x7f;
                     }
                     0xbb => {
                         // res 7,e
-                        self.registers.reg_e = self.registers.reg_e & 0x7f;
+                        self.registers.reg_e &= 0x7f;
                     }
                     0xbc => {
                         // res 7,h
-                        self.registers.reg_h = self.registers.reg_h & 0x7f;
+                        self.registers.reg_h &= 0x7f;
                     }
                     0xbd => {
                         // res 7,l
-                        self.registers.reg_l = self.registers.reg_l & 0x7f;
+                        self.registers.reg_l &= 0x7f;
                     }
                     0xbe => {
                         // res 7,(hl)
@@ -2223,31 +2223,31 @@ impl Cpu {
                     }
                     0xbf => {
                         // res 7,a
-                        self.registers.reg_a = self.registers.reg_a & 0x7f;
+                        self.registers.reg_a &= 0x7f;
                     }
                     0xc0 => {
                         // set 0,b
-                        self.registers.reg_b = self.registers.reg_b | 0x01;
+                        self.registers.reg_b |= 0x01;
                     }
                     0xc1 => {
                         // set 0,c
-                        self.registers.reg_c = self.registers.reg_c | 0x01;
+                        self.registers.reg_c |= 0x01;
                     }
                     0xc2 => {
                         // set 0,d
-                        self.registers.reg_d = self.registers.reg_d | 0x01;
+                        self.registers.reg_d |= 0x01;
                     }
                     0xc3 => {
                         // set 0,e
-                        self.registers.reg_e = self.registers.reg_e | 0x01;
+                        self.registers.reg_e |= 0x01;
                     }
                     0xc4 => {
                         // set 0,h
-                        self.registers.reg_h = self.registers.reg_h | 0x01;
+                        self.registers.reg_h |= 0x01;
                     }
                     0xc5 => {
                         // set 0,l
-                        self.registers.reg_l = self.registers.reg_l | 0x01;
+                        self.registers.reg_l |= 0x01;
                     }
                     0xc6 => {
                         // set 0,(hl)
@@ -2256,31 +2256,31 @@ impl Cpu {
                     }
                     0xc7 => {
                         // set 0,a
-                        self.registers.reg_a = self.registers.reg_a | 0x01;
+                        self.registers.reg_a |= 0x01;
                     }
                     0xc8 => {
                         // set 1,b
-                        self.registers.reg_b = self.registers.reg_b | 0x02;
+                        self.registers.reg_b |= 0x02;
                     }
                     0xc9 => {
                         // set 1,c
-                        self.registers.reg_c = self.registers.reg_c | 0x02;
+                        self.registers.reg_c |= 0x02;
                     }
                     0xca => {
                         // set 1,d
-                        self.registers.reg_d = self.registers.reg_d | 0x02;
+                        self.registers.reg_d |= 0x02;
                     }
                     0xcb => {
                         // set 1,e
-                        self.registers.reg_e = self.registers.reg_e | 0x02;
+                        self.registers.reg_e |= 0x02;
                     }
                     0xcc => {
                         // set 1,h
-                        self.registers.reg_h = self.registers.reg_h | 0x02;
+                        self.registers.reg_h |= 0x02;
                     }
                     0xcd => {
                         // set 1,l
-                        self.registers.reg_l = self.registers.reg_l | 0x02;
+                        self.registers.reg_l |= 0x02;
                     }
                     0xce => {
                         // set 1,(hl)
@@ -2289,31 +2289,31 @@ impl Cpu {
                     }
                     0xcf => {
                         // set 1,a
-                        self.registers.reg_a = self.registers.reg_a | 0x02;
+                        self.registers.reg_a |= 0x02;
                     }
                     0xd0 => {
                         // set 2,b
-                        self.registers.reg_b = self.registers.reg_b | 0x04;
+                        self.registers.reg_b |= 0x04;
                     }
                     0xd1 => {
                         // set 2,c
-                        self.registers.reg_c = self.registers.reg_c | 0x04;
+                        self.registers.reg_c |= 0x04;
                     }
                     0xd2 => {
                         // set 2,d
-                        self.registers.reg_d = self.registers.reg_d | 0x04;
+                        self.registers.reg_d |= 0x04;
                     }
                     0xd3 => {
                         // set 2,e
-                        self.registers.reg_e = self.registers.reg_e | 0x04;
+                        self.registers.reg_e |= 0x04;
                     }
                     0xd4 => {
                         // set 2,h
-                        self.registers.reg_h = self.registers.reg_h | 0x04;
+                        self.registers.reg_h |= 0x04;
                     }
                     0xd5 => {
                         // set 2,l
-                        self.registers.reg_l = self.registers.reg_l | 0x04;
+                        self.registers.reg_l |= 0x04;
                     }
                     0xd6 => {
                         // set 2,(hl)
@@ -2322,31 +2322,31 @@ impl Cpu {
                     }
                     0xd7 => {
                         // set 2,a
-                        self.registers.reg_a = self.registers.reg_a | 0x04;
+                        self.registers.reg_a |= 0x04;
                     }
                     0xd8 => {
                         // set 3,b
-                        self.registers.reg_b = self.registers.reg_b | 0x08;
+                        self.registers.reg_b |= 0x08;
                     }
                     0xd9 => {
                         // set 3,c
-                        self.registers.reg_c = self.registers.reg_c | 0x08;
+                        self.registers.reg_c |= 0x08;
                     }
                     0xda => {
                         // set 3,d
-                        self.registers.reg_d = self.registers.reg_d | 0x08;
+                        self.registers.reg_d |= 0x08;
                     }
                     0xdb => {
                         // set 3,e
-                        self.registers.reg_e = self.registers.reg_e | 0x08;
+                        self.registers.reg_e |= 0x08;
                     }
                     0xdc => {
                         // set 3,h
-                        self.registers.reg_h = self.registers.reg_h | 0x08;
+                        self.registers.reg_h |= 0x08;
                     }
                     0xdd => {
                         // set 3,l
-                        self.registers.reg_l = self.registers.reg_l | 0x08;
+                        self.registers.reg_l |= 0x08;
                     }
                     0xde => {
                         // set 3,(hl)
@@ -2355,31 +2355,31 @@ impl Cpu {
                     }
                     0xdf => {
                         // set 3,a
-                        self.registers.reg_a = self.registers.reg_a | 0x08;
+                        self.registers.reg_a |= 0x08;
                     }
                     0xe0 => {
                         // set 4,b
-                        self.registers.reg_b = self.registers.reg_b | 0x10;
+                        self.registers.reg_b |= 0x10;
                     }
                     0xe1 => {
                         // set 4,c
-                        self.registers.reg_c = self.registers.reg_c | 0x10;
+                        self.registers.reg_c |= 0x10;
                     }
                     0xe2 => {
                         // set 4,d
-                        self.registers.reg_d = self.registers.reg_d | 0x10;
+                        self.registers.reg_d |= 0x10;
                     }
                     0xe3 => {
                         // set 4,e
-                        self.registers.reg_e = self.registers.reg_e | 0x10;
+                        self.registers.reg_e |= 0x10;
                     }
                     0xe4 => {
                         // set 4,h
-                        self.registers.reg_h = self.registers.reg_h | 0x10;
+                        self.registers.reg_h |= 0x10;
                     }
                     0xe5 => {
                         // set 4,l
-                        self.registers.reg_l = self.registers.reg_l | 0x10;
+                        self.registers.reg_l |= 0x10;
                     }
                     0xe6 => {
                         // set 4,(hl)
@@ -2388,31 +2388,31 @@ impl Cpu {
                     }
                     0xe7 => {
                         // set 4,a
-                        self.registers.reg_a = self.registers.reg_a | 0x10;
+                        self.registers.reg_a |= 0x10;
                     }
                     0xe8 => {
                         // set 5,b
-                        self.registers.reg_b = self.registers.reg_b | 0x20;
+                        self.registers.reg_b |= 0x20;
                     }
                     0xe9 => {
                         // set 5,c
-                        self.registers.reg_c = self.registers.reg_c | 0x20;
+                        self.registers.reg_c |= 0x20;
                     }
                     0xea => {
                         // set 5,d
-                        self.registers.reg_d = self.registers.reg_d | 0x20;
+                        self.registers.reg_d |= 0x20;
                     }
                     0xeb => {
                         // set 5,e
-                        self.registers.reg_e = self.registers.reg_e | 0x20;
+                        self.registers.reg_e |= 0x20;
                     }
                     0xec => {
                         // set 5,h
-                        self.registers.reg_h = self.registers.reg_h | 0x20;
+                        self.registers.reg_h |= 0x20;
                     }
                     0xed => {
                         // set 5,l
-                        self.registers.reg_l = self.registers.reg_l | 0x20;
+                        self.registers.reg_l |= 0x20;
                     }
                     0xee => {
                         // set 5,(hl)
@@ -2421,31 +2421,31 @@ impl Cpu {
                     }
                     0xef => {
                         // set 5,a
-                        self.registers.reg_a = self.registers.reg_a | 0x20;
+                        self.registers.reg_a |= 0x20;
                     }
                     0xf0 => {
                         // set 6,b
-                        self.registers.reg_b = self.registers.reg_b | 0x40;
+                        self.registers.reg_b |= 0x40;
                     }
                     0xf1 => {
                         // set 6,c
-                        self.registers.reg_c = self.registers.reg_c | 0x40;
+                        self.registers.reg_c |= 0x40;
                     }
                     0xf2 => {
                         // set 6,d
-                        self.registers.reg_d = self.registers.reg_d | 0x40;
+                        self.registers.reg_d |= 0x40;
                     }
                     0xf3 => {
                         // set 6,e
-                        self.registers.reg_e = self.registers.reg_e | 0x40;
+                        self.registers.reg_e |= 0x40;
                     }
                     0xf4 => {
                         // set 6,h
-                        self.registers.reg_h = self.registers.reg_h | 0x40;
+                        self.registers.reg_h |= 0x40;
                     }
                     0xf5 => {
                         // set 6,l
-                        self.registers.reg_l = self.registers.reg_l | 0x40;
+                        self.registers.reg_l |= 0x40;
                     }
                     0xf6 => {
                         // set 6,(hl)
@@ -2454,31 +2454,31 @@ impl Cpu {
                     }
                     0xf7 => {
                         // set 6,a
-                        self.registers.reg_a = self.registers.reg_a | 0x40;
+                        self.registers.reg_a |= 0x40;
                     }
                     0xf8 => {
                         // set 7,b
-                        self.registers.reg_b = self.registers.reg_b | 0x80;
+                        self.registers.reg_b |= 0x80;
                     }
                     0xf9 => {
                         // set 7,c
-                        self.registers.reg_c = self.registers.reg_c | 0x80;
+                        self.registers.reg_c |= 0x80;
                     }
                     0xfa => {
                         // set 7,d
-                        self.registers.reg_d = self.registers.reg_d | 0x80;
+                        self.registers.reg_d |= 0x80;
                     }
                     0xfb => {
                         // set 7,e
-                        self.registers.reg_e = self.registers.reg_e | 0x80;
+                        self.registers.reg_e |= 0x80;
                     }
                     0xfc => {
                         // set 7,h
-                        self.registers.reg_h = self.registers.reg_h | 0x80;
+                        self.registers.reg_h |= 0x80;
                     }
                     0xfd => {
                         // set 7,l
-                        self.registers.reg_l = self.registers.reg_l | 0x80;
+                        self.registers.reg_l |= 0x80;
                     }
                     0xfe => {
                         // set 7,(hl)
@@ -2487,14 +2487,14 @@ impl Cpu {
                     }
                     0xff => {
                         // set 7,a
-                        self.registers.reg_a = self.registers.reg_a | 0x80;
+                        self.registers.reg_a |= 0x80;
                     }
                 }
             }
             0xcc => {
                 // call z,nn
                 let nn = self.bus.read_mem_u16(pc);
-                if self.registers.reg_f.z == true {
+                if self.registers.reg_f.z {
                     self.push_stack(self.registers.reg_pc);
                     self.registers.reg_pc = nn;
                 }
@@ -2518,7 +2518,7 @@ impl Cpu {
             }
             0xd0 => {
                 // ret nc
-                if self.registers.reg_f.c == false {
+                if !self.registers.reg_f.c {
                     self.pop_stack();
                 }
             }
@@ -2530,7 +2530,7 @@ impl Cpu {
             }
             0xd2 => {
                 // jp nc,$+3
-                if self.registers.reg_f.c == false {
+                if !self.registers.reg_f.c {
                     let nn = self.bus.read_mem_u16(pc);
                     self.registers.reg_pc = nn;
                 } else {
@@ -2546,7 +2546,7 @@ impl Cpu {
             0xd4 => {
                 // call nc,nn
                 let nn = self.bus.read_mem_u16(pc);
-                if self.registers.reg_f.c == false {
+                if !self.registers.reg_f.c {
                     self.push_stack(self.registers.reg_pc);
                     self.registers.reg_pc = nn;
                 } else {
@@ -2572,7 +2572,7 @@ impl Cpu {
             }
             0xd8 => {
                 // ret c
-                if self.registers.reg_f.c == true {
+                if self.registers.reg_f.c {
                     self.pop_stack();
                 }
             }
@@ -2604,7 +2604,7 @@ impl Cpu {
             }
             0xda => {
                 // jp c,$+3
-                if self.registers.reg_f.c == true {
+                if self.registers.reg_f.c {
                     let nn = self.bus.read_mem_u16(pc);
                     self.registers.reg_pc = nn;
                 } else {
@@ -2619,7 +2619,7 @@ impl Cpu {
             }
             0xdc => {
                 // call c,nn
-                if self.registers.reg_f.c == true {
+                if self.registers.reg_f.c {
                     let nn = self.bus.read_mem_u16(pc);
                     self.push_stack(self.registers.reg_pc);
                     self.registers.reg_pc = nn;
@@ -3136,7 +3136,7 @@ impl Cpu {
             }
             0xe0 => {
                 // ret po
-                if self.registers.reg_f.p == false {
+                if !self.registers.reg_f.p {
                     self.pop_stack();
                 }
             }
@@ -3148,7 +3148,7 @@ impl Cpu {
             }
             0xe2 => {
                 // jp po,$+3
-                if self.registers.reg_f.p == false {
+                if !self.registers.reg_f.p {
                     let value = self.bus.read_mem_u16(pc);
                     self.registers.reg_pc = value;
                 } else {
@@ -3164,7 +3164,7 @@ impl Cpu {
             }
             0xe4 => {
                 // call po,nn
-                if self.registers.reg_f.p == false {
+                if !self.registers.reg_f.p {
                     let nn = self.bus.read_mem_u16(pc);
                     self.registers.reg_pc = nn;
                 } else {
@@ -3190,7 +3190,7 @@ impl Cpu {
             }
             0xe8 => {
                 // ret pe
-                if self.registers.reg_f.p == true {
+                if self.registers.reg_f.p {
                     self.pop_stack();
                 }
             }
@@ -3201,7 +3201,7 @@ impl Cpu {
             }
             0xea => {
                 // jp pe,$+3
-                if self.registers.reg_f.p == true {
+                if self.registers.reg_f.p {
                     let value = self.bus.read_mem_u16(pc);
                     self.registers.reg_pc = value;
                 } else {
@@ -3217,7 +3217,7 @@ impl Cpu {
             }
             0xec => {
                 // call pe,nn
-                if self.registers.reg_f.p == true {
+                if self.registers.reg_f.p {
                     let nn = self.bus.read_mem_u16(pc);
                     self.registers.reg_pc = nn;
                 } else {
@@ -3522,7 +3522,7 @@ impl Cpu {
             }
             0xf0 => {
                 // ret p
-                if self.registers.reg_f.s == false {
+                if !self.registers.reg_f.s {
                     self.pop_stack();
                 }
             }
@@ -3534,7 +3534,7 @@ impl Cpu {
             }
             0xf2 => {
                 // jp p,$+3
-                if self.registers.reg_f.s == false {
+                if !self.registers.reg_f.s {
                     let value = self.bus.read_mem_u16(pc);
                     self.registers.reg_pc = value;
                 } else {
@@ -3569,7 +3569,7 @@ impl Cpu {
             }
             0xf8 => {
                 // ret m
-                if self.registers.reg_f.s == true {
+                if self.registers.reg_f.s {
                     self.pop_stack();
                 }
             }
@@ -3580,7 +3580,7 @@ impl Cpu {
             }
             0xfa => {
                 // jp m,$+3
-                if self.registers.reg_f.s == true {
+                if self.registers.reg_f.s {
                     let value = self.bus.read_mem_u16(pc);
                     self.registers.reg_pc = value;
                 } else {
@@ -3593,7 +3593,7 @@ impl Cpu {
             }
             0xfc => {
                 // call m,nn
-                if self.registers.reg_f.s == true {
+                if self.registers.reg_f.s {
                     let nn = self.bus.read_mem_u16(pc);
                     self.push_stack(self.registers.reg_pc);
                     self.registers.reg_pc = nn;
@@ -4150,5 +4150,34 @@ mod tests {
         cpu.step();
 
         assert_eq!(cpu.registers.get_ix(), 0x5555);
+    }
+
+    #[test]
+    fn test_cpu_execution_2() {
+        let mut bus = Bus::new(65535);
+        let program = include_bytes!("../tests/z80full.bin").to_vec();
+
+        for (offset, &opcode) in program.iter().enumerate() {
+            bus.write_mem(0x8000 + offset as u16, opcode);
+        }
+        // Patch location 0x1601 where ZX Spectrum selects channel.
+        bus.write_mem(0x1601, 0xc9);
+        // Patch RST10 location with HALT
+        bus.write_mem(0x0010, 0x76);
+
+        let mut cpu = Cpu::new(bus);
+        cpu.registers.reg_pc = 0x8000;
+        cpu.registers.set_sp(0xffff);
+
+        while cpu.registers.reg_pc != 0x8095 {
+            if cpu.halt {
+                println!("HALT");
+                cpu.halt = false;
+            }
+            cpu.step();
+            println!("PC: {:#04x}", cpu.registers.reg_pc);
+        }
+
+        assert_eq!(cpu.registers.reg_pc, 0x8095);
     }
 }

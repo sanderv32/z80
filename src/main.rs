@@ -1,9 +1,9 @@
 mod bus;
 use crate::bus::Bus;
 
+mod cpu;
 mod flags;
 mod registers;
-mod cpu;
 
 fn main() {
     let bus = Bus::new(65535);
