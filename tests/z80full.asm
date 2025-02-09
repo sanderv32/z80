@@ -254,7 +254,7 @@
 0x817c 7C           |                   LD A,H
 0x817d 2E 2F        |                   LD L,$2F
 0x817f 2C           |                   INC L
-0x8180 80           |                   AA,B
+0x8180 80           |                   ADD A,B
 0x8181 38 FC        |                   JR C,$FC
 0x8183 90           |                   SUB A,B
 0x8184 67           |                   LD H,A
@@ -623,9 +623,9 @@
 0x8372 21 65 88     |                   LD HL,$8865
 0x8375 11 50 88     |                   LD DE,$8850
 0x8378 1A           |                   LD A,(DE)
-0x8379 87           |                   AA,A
+0x8379 87           |                   ADD A,A
 0x837a ED 44        |                   NEG
-0x837c 86           |                   AA,(HL)
+0x837c 86           |                   ADD A,(HL)
 0x837d AE           |                   XOR (HL)
 0x837e A6           |                   AND (HL)
 0x837f 12           |                   LD (DE),A

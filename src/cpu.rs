@@ -27,6 +27,7 @@ pub struct Cpu {
 enum Type {
     Direct(u16),
     Register(Regs),
+    Immediate(u8),
 }
 
 impl Cpu {
@@ -55,6 +56,7 @@ impl Cpu {
         match t {
             Type::Direct(addr) => self.bus.read_mem(*addr),
             Type::Register(reg) => self.get_register_value(reg),
+            Type::Immediate(value) => *value,
         }
     }
 
@@ -75,6 +77,7 @@ impl Cpu {
         match t {
             Type::Direct(addr) => self.bus.write_mem(*addr, value),
             Type::Register(reg) => self.set_register_value(reg, value),
+            Type::Immediate(_) => (),
         }
     }
 
@@ -99,13 +102,62 @@ impl Cpu {
         }
     }
 
-    fn daa(&mut self) {}
+    fn daa(&mut self) {
+        let mut t = 0;
+
+        if self.registers.reg_f.h || (self.registers.reg_a & 0x0f) > 9 {
+            t += 1;
+        }
+
+        if self.registers.reg_f.c || self.registers.reg_a > 0x99 {
+            t += 2;
+            self.registers.reg_f.c = true;
+        }
+
+        if self.registers.reg_f.n && !self.registers.reg_f.h {
+            self.registers.reg_f.h = false;
+        } else if self.registers.reg_f.n && self.registers.reg_f.h {
+            self.registers.reg_f.h = (self.registers.reg_a & 0x0f) < 6;
+        } else {
+            self.registers.reg_f.h = (self.registers.reg_a & 0x0f) >= 0x0a;
+        }
+
+        match t {
+            1 => {
+                self.registers.reg_a = if self.registers.reg_f.n {
+                    self.registers.reg_a.wrapping_sub(0xfa)
+                } else {
+                    self.registers.reg_a.wrapping_add(6)
+                };
+            }
+            2 => {
+                self.registers.reg_a = if self.registers.reg_f.n {
+                    self.registers.reg_a.wrapping_sub(0xa0)
+                } else {
+                    self.registers.reg_a.wrapping_add(0x60)
+                };
+            }
+            3 => {
+                if self.registers.reg_f.n {
+                    self.registers.reg_a = self.registers.reg_a.wrapping_sub(0x9a);
+                } else {
+                    self.registers.reg_a = self.registers.reg_a.wrapping_add(0x66);
+                }
+            }
+            _ => {}
+        }
+
+        self.registers.reg_f.s = (self.registers.reg_a as i8) < 0;
+        self.registers.reg_f.z = self.registers.reg_a == 0;
+        self.registers.reg_f.p = self.registers.reg_a.count_ones() & 1 == 0;
+    }
 
     fn inc(&mut self, r1: u8) -> u8 {
         let value = r1.wrapping_add(1);
         self.registers.reg_f.s = (value as i8) < 0;
         self.registers.reg_f.z = value == 0;
-        self.registers.reg_f.h = (value & 0x0f) + 1 > 0x0f;
+        self.registers.reg_f.h = (r1 & 0x0f) + 1 > 0x0f;
+        self.registers.reg_f.p = r1 == 0x7f;
         self.registers.reg_f.n = false;
         value
     }
@@ -114,23 +166,11 @@ impl Cpu {
         let value = r1.wrapping_sub(1);
         self.registers.reg_f.z = value == 0;
         self.registers.reg_f.s = (value as i8) < 0;
-        self.registers.reg_f.p = value == 0x80;
-        self.registers.reg_f.h = (value & 0x0f) < 1;
+        self.registers.reg_f.p = r1 == 0x80;
+        self.registers.reg_f.h = (r1 & 0x0f) < 1;
         self.registers.reg_f.n = true;
         value
     }
-
-    // fn add(&mut self, r1: u8) {
-    //     let a = self.registers.reg_a;
-    //     let value = a.wrapping_add(r1);
-    //     self.registers.reg_f.s = (value as i8) < 0;
-    //     self.registers.reg_f.z = value == 0;
-    //     self.registers.reg_f.h = (value & 0x0f) + (a & 0x0f) > 0x0f;
-    //     self.registers.reg_f.c = u16::from(a) + u16::from(r1) > 0xff;
-    //     self.registers.reg_f.p = (a as i8).overflowing_add(value as i8).1;
-    //     self.registers.reg_f.n = false;
-    //     self.registers.reg_a = value;
-    // }
 
     fn add(&mut self, r1: u8, with_carry: bool) {
         let carry = if with_carry {
@@ -185,13 +225,13 @@ impl Cpu {
             0
         };
         let a = self.registers.reg_a;
-        let value = a.wrapping_sub(r1);
+        let value = a.wrapping_sub(r1.wrapping_add(carry));
         self.registers.reg_f.s = (value as i8) < 0;
         self.registers.reg_f.z = value == 0;
         self.registers.reg_f.h = (a as i8 & 0x0f) < (value as i8 & 0x0f).wrapping_add(carry as i8);
         self.registers.reg_f.c = u16::from(a) < (u16::from(r1) + u16::from(carry));
         self.registers.reg_f.p = (a as i8).overflowing_sub(value.wrapping_add(carry) as i8).1;
-        self.registers.reg_f.n = false;
+        self.registers.reg_f.n = if with_carry { true } else { false };
         self.registers.reg_a = value;
     }
 
@@ -216,13 +256,21 @@ impl Cpu {
         self.registers.reg_f.c = hl < r1 + carry;
     }
 
-    fn and(&mut self, r1: u8) {
+    fn and(&mut self, t: Type) {
+        let r1 = self.get_value(&t);
         let a = self.registers.reg_a;
         let value = a & r1;
         self.registers.reg_a = value;
+        self.registers.reg_f.s = (value as i8) < 0;
+        self.registers.reg_f.z = value == 0;
+        self.registers.reg_f.h = false;
+        self.registers.reg_f.p = value.count_ones() & 1 == 0;
+        self.registers.reg_f.n = false;
+        self.registers.reg_f.c = false;
     }
 
-    fn or(&mut self, r1: u8) {
+    fn or(&mut self, t: Type) {
+        let r1 = self.get_value(&t);
         let a = self.registers.reg_a;
         let value = a | r1;
         self.registers.reg_a = value;
@@ -234,10 +282,17 @@ impl Cpu {
         self.registers.reg_f.c = false;
     }
 
-    fn xor(&mut self, r1: u8) {
+    fn xor(&mut self, t: Type) {
+        let r1 = self.get_value(&t);
         let a = self.registers.reg_a;
         let value = a ^ r1;
         self.registers.reg_a = value;
+        self.registers.reg_f.s = (value as i8) < 0;
+        self.registers.reg_f.z = value == 0;
+        self.registers.reg_f.h = false;
+        self.registers.reg_f.p = value.count_ones() & 1 == 0;
+        self.registers.reg_f.n = false;
+        self.registers.reg_f.c = false;
     }
 
     /// Compare register A with r1
@@ -245,9 +300,12 @@ impl Cpu {
     /// r1: Register to compare
     /// Flags are set based on the result
     fn cp(&mut self, r1: u8) {
-        let a = self.registers.reg_a;
-        self.sub(r1, false);
-        self.registers.reg_a = a;
+        let (rval, c) = self.registers.reg_a.overflowing_sub(r1);
+        let v = (rval as i8).checked_sub(r1 as i8).is_none();
+        self.registers.reg_f.z = rval == 0;
+        self.registers.reg_f.s = (rval as i8) < 0;
+        self.registers.reg_f.n = true;
+        self.registers.reg_f.c = c;
     }
 
     fn pop_stack(&mut self) {
@@ -259,20 +317,6 @@ impl Cpu {
         self.registers.reg_sp -= 2;
         self.bus.write_mem_u16(self.registers.reg_sp, value);
     }
-
-    // TODO: Remove this
-    // fn rlc(&mut self, r1: u8) {
-    //     let carry = match self.registers.reg_f.c {
-    //         true => 1,
-    //         false => 0,
-    //     };
-    //     self.registers.reg_f.c = r1 & 0x80 == 0x80;
-    //     self.registers.reg_f.h = false;
-    //     self.registers.reg_f.n = false;
-    //     self.registers.reg_f.z = r1 == 0;
-    //     self.registers.reg_f.s = (r1 as i8) < 0;
-    //     self.registers.reg_a = r1 << 1 | carry >> 7;
-    // }
 
     /// Rotate left carry direct
     fn rlc(&mut self, t: Type) {
@@ -289,20 +333,6 @@ impl Cpu {
         self.set_value(&t, r1 << 1 | carry >> 7);
     }
 
-    // TODO: Remove this
-    // fn rrc(&mut self, r1: u8) {
-    //     let carry = match self.registers.reg_f.c {
-    //         true => 1,
-    //         false => 0,
-    //     };
-    //     self.registers.reg_f.c = r1 & 0x01 == 0x01;
-    //     self.registers.reg_f.h = false;
-    //     self.registers.reg_f.n = false;
-    //     self.registers.reg_f.z = r1 == 0;
-    //     self.registers.reg_f.s = (r1 as i8) < 0;
-    //     self.registers.reg_a = r1 >> 1 | carry << 7;
-    // }
-
     fn rrc(&mut self, t: Type) {
         let carry = match self.registers.reg_f.c {
             true => 1,
@@ -316,20 +346,6 @@ impl Cpu {
         self.registers.reg_f.s = (r1 as i8) < 0;
         self.set_value(&t, r1 >> 1 | carry << 7);
     }
-
-    // TODO: Remove this
-    // fn rl(&mut self, r1: u8) {
-    //     let carry = match self.registers.reg_f.c {
-    //         true => 1,
-    //         false => 0,
-    //     };
-    //     self.registers.reg_f.c = r1 & 0x80 == 0x80;
-    //     self.registers.reg_f.h = false;
-    //     self.registers.reg_f.n = false;
-    //     self.registers.reg_f.z = r1 == 0;
-    //     self.registers.reg_f.s = (r1 as i8) < 0;
-    //     self.registers.reg_a = r1 << 1 | carry;
-    // }
 
     fn rl(&mut self, t: Type) {
         let carry = match self.registers.reg_f.c {
@@ -484,11 +500,11 @@ impl Cpu {
             }
             0x04 => {
                 // inc b
-                self.inc(self.registers.reg_b);
+                self.registers.reg_b = self.inc(self.registers.reg_b);
             }
             0x05 => {
                 // dec b
-                self.dec(self.registers.reg_b);
+                self.registers.reg_b = self.dec(self.registers.reg_b);
             }
             0x06 => {
                 // ld b,n
@@ -529,11 +545,11 @@ impl Cpu {
             }
             0x0c => {
                 // inc c
-                self.inc(self.registers.reg_c);
+                self.registers.reg_c = self.inc(self.registers.reg_c);
             }
             0x0d => {
                 // dec c
-                self.dec(self.registers.reg_c);
+                self.registers.reg_c = self.dec(self.registers.reg_c);
             }
             0x0e => {
                 // ld c,n
@@ -582,11 +598,11 @@ impl Cpu {
             }
             0x14 => {
                 // inc d
-                self.inc(self.registers.reg_d);
+                self.registers.reg_d = self.inc(self.registers.reg_d);
             }
             0x15 => {
                 // dec d
-                self.dec(self.registers.reg_d);
+                self.registers.reg_d = self.dec(self.registers.reg_d);
             }
             0x16 => {
                 // ld d,n
@@ -629,11 +645,11 @@ impl Cpu {
             }
             0x1c => {
                 // inc e
-                self.inc(self.registers.reg_e);
+                self.registers.reg_e = self.inc(self.registers.reg_e);
             }
             0x1d => {
                 // dec e
-                self.dec(self.registers.reg_e);
+                self.registers.reg_e = self.dec(self.registers.reg_e);
             }
             0x1e => {
                 // ld e,n
@@ -678,16 +694,16 @@ impl Cpu {
             }
             0x23 => {
                 // inc hl
-                let hl = self.registers.get_hl() + 1;
+                let hl = self.registers.get_hl().wrapping_add(1);
                 self.registers.set_hl(hl);
             }
             0x24 => {
                 // inc h
-                self.inc(self.registers.reg_h);
+                self.registers.reg_h = self.inc(self.registers.reg_h);
             }
             0x25 => {
                 // dec h
-                self.dec(self.registers.reg_h);
+                self.registers.reg_h = self.dec(self.registers.reg_h);
             }
             0x26 => {
                 // ld h,n
@@ -695,8 +711,9 @@ impl Cpu {
                 self.registers.reg_h = n;
                 self.registers.reg_pc += 1
             }
-            0x27 => { // daa
-                 // TODO
+            0x27 => {
+                // daa
+                self.daa();
             }
             0x28 => {
                 // jr z,$+2
@@ -729,11 +746,11 @@ impl Cpu {
             }
             0x2c => {
                 // inc l
-                self.inc(self.registers.reg_l);
+                self.registers.reg_l = self.inc(self.registers.reg_l);
             }
             0x2d => {
                 // dec l
-                self.dec(self.registers.reg_l);
+                self.registers.reg_l = self.dec(self.registers.reg_l);
             }
             0x2e => {
                 // ld l,n
@@ -772,7 +789,7 @@ impl Cpu {
             }
             0x33 => {
                 // inc sp
-                let sp = self.registers.get_sp() + 1;
+                let sp = self.registers.get_sp().wrapping_add(1);
                 self.registers.set_sp(sp);
             }
             0x34 => {
@@ -830,11 +847,11 @@ impl Cpu {
             }
             0x3c => {
                 // inc a
-                self.inc(self.registers.reg_a);
+                self.registers.reg_a = self.inc(self.registers.reg_a);
             }
             0x3d => {
                 // dec a
-                self.dec(self.registers.reg_a);
+                self.registers.reg_a = self.dec(self.registers.reg_a);
             }
             0x3e => {
                 // ld a,n
@@ -1236,102 +1253,102 @@ impl Cpu {
             }
             0xa0 => {
                 // and b
-                self.and(self.registers.reg_b);
+                self.and(Type::Register(Regs::B));
             }
             0xa1 => {
                 // and c
-                self.and(self.registers.reg_c);
+                self.and(Type::Register(Regs::C));
             }
             0xa2 => {
                 // and d
-                self.and(self.registers.reg_d);
+                self.and(Type::Register(Regs::D));
             }
             0xa3 => {
                 // and e
-                self.and(self.registers.reg_e);
+                self.and(Type::Register(Regs::E));
             }
             0xa4 => {
                 // and h
-                self.and(self.registers.reg_h);
+                self.and(Type::Register(Regs::H));
             }
             0xa5 => {
                 // and l
-                self.and(self.registers.reg_l);
+                self.and(Type::Register(Regs::L));
             }
             0xa6 => {
                 // and (hl)
                 let hl = self.registers.get_hl();
-                self.and(self.bus.read_mem(hl));
+                self.and(Type::Direct(hl));
             }
             0xa7 => {
                 // and a
-                self.and(self.registers.reg_a);
+                self.and(Type::Register(Regs::A));
             }
             0xa8 => {
                 // xor b
-                self.xor(self.registers.reg_b);
+                self.xor(Type::Register(Regs::B));
             }
             0xa9 => {
                 // xor c
-                self.xor(self.registers.reg_c);
+                self.xor(Type::Register(Regs::C));
             }
             0xaa => {
                 // xor d
-                self.xor(self.registers.reg_d);
+                self.xor(Type::Register(Regs::D));
             }
             0xab => {
                 // xor e
-                self.xor(self.registers.reg_e);
+                self.xor(Type::Register(Regs::E));
             }
             0xac => {
                 // xor h
-                self.xor(self.registers.reg_h);
+                self.xor(Type::Register(Regs::H));
             }
             0xad => {
                 // xor l
-                self.xor(self.registers.reg_l);
+                self.xor(Type::Register(Regs::L));
             }
             0xae => {
                 // xor (hl)
                 let hl = self.registers.get_hl();
-                self.xor(self.bus.read_mem(hl));
+                self.xor(Type::Direct(hl));
             }
             0xaf => {
                 // xor a
-                self.xor(self.registers.reg_a);
+                self.xor(Type::Register(Regs::A));
             }
             0xb0 => {
                 // or b
-                self.or(self.registers.reg_b);
+                self.or(Type::Register(Regs::B));
             }
             0xb1 => {
                 // or c
-                self.or(self.registers.reg_c);
+                self.or(Type::Register(Regs::C));
             }
             0xb2 => {
                 // or d
-                self.or(self.registers.reg_d);
+                self.or(Type::Register(Regs::D));
             }
             0xb3 => {
                 // or e
-                self.or(self.registers.reg_e);
+                self.or(Type::Register(Regs::E));
             }
             0xb4 => {
                 // or h
-                self.or(self.registers.reg_h);
+                self.or(Type::Register(Regs::H));
             }
             0xb5 => {
                 // or l
-                self.or(self.registers.reg_l);
+                self.or(Type::Register(Regs::L));
             }
             0xb6 => {
                 // or (hl)
                 let hl = self.registers.get_hl();
-                self.or(self.bus.read_mem(hl));
+                self.or(Type::Direct(hl));
             }
             0xb7 => {
                 // or a
-                self.or(self.registers.reg_a);
+                self.or(Type::Register(Regs::A));
             }
             0xb8 => {
                 // cp b
@@ -2632,6 +2649,7 @@ impl Cpu {
                 // in a,(n)
                 let n = self.bus.read_mem(self.registers.reg_pc);
                 // TODO: implement input
+                self.registers.reg_a = 0;
                 self.registers.reg_pc += 1;
             }
             0xdc => {
@@ -2676,7 +2694,7 @@ impl Cpu {
                     }
                     0x23 => {
                         // inc ix
-                        let ix = self.registers.get_ix() + 1;
+                        let ix = self.registers.get_ix().wrapping_add(1);
                         self.registers.set_ix(ix);
                     }
                     0x29 => {
@@ -2699,15 +2717,17 @@ impl Cpu {
                     0x34 => {
                         // inc (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.inc(value + n);
+                        let ix = self.registers.get_ix();
+                        let value = self.inc(self.bus.read_mem(ix + n as u16));
+                        self.bus.write_mem(ix + n as u16, value);
                         self.registers.reg_pc += 1;
                     }
                     0x35 => {
                         // dec (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.dec(value + n);
+                        let ix = self.registers.get_ix();
+                        let value = self.dec(self.bus.read_mem(ix + n as u16));
+                        self.bus.write_mem(ix + n as u16, value);
                         self.registers.reg_pc += 1;
                     }
                     0x36 => {
@@ -2853,22 +2873,22 @@ impl Cpu {
                     0xa6 => {
                         // and (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.and(value);
+                        let ix = self.registers.get_ix();
+                        self.and(Type::Direct(ix + n as u16));
                         self.registers.reg_pc += 1;
                     }
                     0xae => {
                         // xor (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.xor(value);
+                        let ix = self.registers.get_ix();
+                        self.xor(Type::Direct(ix + n as u16));
                         self.registers.reg_pc += 1;
                     }
                     0xb6 => {
                         // or (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.or(value);
+                        let ix = self.registers.get_ix();
+                        self.or(Type::Direct(ix + n as u16));
                         self.registers.reg_pc += 1;
                     }
                     0xbe => {
@@ -3197,7 +3217,7 @@ impl Cpu {
             0xe6 => {
                 // and n
                 let n = self.bus.read_mem(self.registers.reg_pc);
-                self.and(n);
+                self.and(Type::Immediate(n));
                 self.registers.reg_pc += 1;
             }
             0xe7 => {
@@ -3246,11 +3266,14 @@ impl Cpu {
                 let opcode = self.bus.read_mem(self.registers.reg_pc);
                 self.registers.reg_pc += 1;
                 match opcode {
-                    0x40 => { // in b,(c)
-                         // TODO
+                    0x40 => {
+                        // in b,(c)
+                        // TODO: Implement
+                        self.registers.reg_b = 0;
                     }
-                    0x41 => { // out (c),b
-                         // TODO
+                    0x41 => {
+                        // out (c),b
+                        // TODO: Implement
                     }
                     0x42 => {
                         // sbc hl,bc
@@ -3266,6 +3289,10 @@ impl Cpu {
                     0x44 => {
                         // neg
                         let a = 0x100 - self.registers.reg_a as u16;
+                        self.registers.reg_f.z = a == 0;
+                        self.registers.reg_f.s = (a as i8) < 0;
+                        self.registers.reg_f.p = a == 0x80;
+                        self.registers.reg_f.c = a == 0;
                         self.registers.reg_a = a as u8;
                     }
                     0x45 => {
@@ -3281,11 +3308,14 @@ impl Cpu {
                         // ld i,a
                         self.registers.reg_i = self.registers.reg_a;
                     }
-                    0x48 => { // in c,(c)
-                         // TODO
+                    0x48 => {
+                        // in c,(c)
+                        // TODO: Implement
+                        self.registers.reg_c = 0;
                     }
-                    0x49 => { // out (c),c
-                         // TODO
+                    0x49 => {
+                        // out (c),c
+                        // TODO: Implement
                     }
                     0x4a => {
                         // adc hl,bc
@@ -3308,11 +3338,14 @@ impl Cpu {
                         // ld r,a
                         self.registers.reg_r = self.registers.reg_a;
                     }
-                    0x50 => { // in d,(c)
-                         // TODO
+                    0x50 => {
+                        // in d,(c)
+                        // TODO: Implement
+                        self.registers.reg_d = 0;
                     }
-                    0x51 => { // out (c),d
-                         // TODO
+                    0x51 => {
+                        // out (c),d
+                        // TODO: Implement
                     }
                     0x52 => {
                         // sbc hl,de
@@ -3333,11 +3366,14 @@ impl Cpu {
                         // ld a,i
                         self.registers.reg_a = self.registers.reg_i;
                     }
-                    0x58 => { // in e,(c)
-                         // TODO
+                    0x58 => {
+                        // in e,(c)
+                        // TODO: Implement
+                        self.registers.reg_e = 0;
                     }
-                    0x59 => { // out (c),e
-                         // TODO
+                    0x59 => {
+                        // out (c),e
+                        // TODO: Implement
                     }
                     0x5a => {
                         // adc hl,de
@@ -3356,11 +3392,14 @@ impl Cpu {
                         // im 2
                         self.im = 2;
                     }
-                    0x60 => { // in h,(c)
-                         // TODO
+                    0x60 => {
+                        // in h,(c)
+                        // TODO: Implement
+                        self.registers.reg_h = 0;
                     }
-                    0x61 => { // out (c),h
-                         // TODO
+                    0x61 => {
+                        // out (c),h
+                        // TODO: Implement
                     }
                     0x62 => {
                         // sbc hl,hl
@@ -3375,11 +3414,14 @@ impl Cpu {
                         self.bus
                             .write_mem(self.registers.get_hl(), (a << 4) | (value >> 4));
                     }
-                    0x68 => { // in l,(c)
-                         // TODO
+                    0x68 => {
+                        // in l,(c)
+                        // TODO: Implement
+                        self.registers.reg_l = 0;
                     }
-                    0x69 => { // out (c),l
-                         // TODO
+                    0x69 => {
+                        // out (c),l
+                        // TODO: Implement
                     }
                     0x6a => {
                         // adc hl,hl
@@ -3406,11 +3448,14 @@ impl Cpu {
                         self.bus.write_mem_u16(nn, self.registers.get_sp());
                         self.registers.reg_pc += 2;
                     }
-                    0x78 => { // in a,(c)
-                         // TODO
+                    0x78 => {
+                        // in a,(c)
+                        // TODO: Implement
+                        self.registers.reg_a = 0;
                     }
-                    0x79 => { // out (c),a
-                         // TODO
+                    0x79 => {
+                        // out (c),a
+                        // TODO
                     }
                     0x7a => {
                         // adc hl,sp
@@ -3435,7 +3480,9 @@ impl Cpu {
                         self.registers.set_hl(hl.wrapping_add(1));
                         self.registers.set_de(de.wrapping_add(1));
                         self.registers.set_bc(bc.wrapping_sub(1));
-                        // TODO: Implement correct flags
+                        self.registers.reg_f.h = false;
+                        self.registers.reg_f.n = false;
+                        self.registers.reg_f.p = bc.wrapping_sub(1) != 0;
                     }
                     0xa1 => {
                         // cpi
@@ -3457,7 +3504,9 @@ impl Cpu {
                         self.registers.set_hl(hl.wrapping_sub(1));
                         self.registers.set_de(de.wrapping_sub(1));
                         self.registers.set_bc(bc.wrapping_sub(1));
-                        // TODO: Implement correct flags
+                        self.registers.reg_f.h = false;
+                        self.registers.reg_f.n = false;
+                        self.registers.reg_f.p = bc.wrapping_sub(1) != 0;
                     }
                     0xa9 => {
                         // cpd
@@ -3481,7 +3530,9 @@ impl Cpu {
                             de = de.wrapping_add(1);
                             bc = bc.wrapping_sub(1);
                         }
-                        // TODO: Implement correct flags
+                        self.registers.reg_f.h = false;
+                        self.registers.reg_f.n = false;
+                        self.registers.reg_f.p = bc.wrapping_sub(1) != 0;
                     }
                     0xb1 => {
                         // cpir
@@ -3654,7 +3705,7 @@ impl Cpu {
                     }
                     0x23 => {
                         // inc iy
-                        let iy = self.registers.get_iy() + 1;
+                        let iy = self.registers.get_iy().wrapping_add(1);
                         self.registers.set_iy(iy);
                     }
                     0x29 => {
@@ -3846,24 +3897,21 @@ impl Cpu {
                         // and (iy+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let iy = self.registers.get_iy();
-                        let value = self.bus.read_mem(iy + n as u16);
-                        self.and(value);
+                        self.and(Type::Direct(iy + n as u16));
                         self.registers.reg_pc += 1;
                     }
                     0xae => {
                         // xor (iy+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let iy = self.registers.get_iy();
-                        let value = self.bus.read_mem(iy + n as u16);
-                        self.xor(value);
+                        self.xor(Type::Direct(iy + n as u16));
                         self.registers.reg_pc += 1;
                     }
                     0xb6 => {
                         // or (iy+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let iy = self.registers.get_iy();
-                        let value = self.bus.read_mem(iy + n as u16);
-                        self.or(value);
+                        self.or(Type::Direct(iy + n as u16));
                         self.registers.reg_pc += 1;
                     }
                     0xbe => {
@@ -3881,7 +3929,6 @@ impl Cpu {
                         let opcode = self.bus.read_mem(self.registers.reg_pc + 1);
                         self.registers.reg_pc += 2;
                         match opcode {
-                            // TODO: This needs to be done again
                             0x06 => {
                                 // rlc (iy+n)
                                 self.rlc(Type::Direct(iy + n as u16));
@@ -4092,6 +4139,8 @@ impl Cpu {
 
     pub fn step(&mut self) {
         self.exec_opcode();
+        let rhb = self.registers.reg_r & 0x80;
+        self.registers.reg_r = self.registers.reg_r.wrapping_add(1) | rhb;
     }
 
     pub fn steps(&mut self, no_steps: u16) {
@@ -4119,15 +4168,33 @@ mod tests {
     use crate::bus::Bus;
 
     use super::Cpu;
+    use super::Type;
+    use std::sync::Once;
+
+    #[allow(dead_code)]
+    static INIT: Once = Once::new();
+
+    #[allow(dead_code)]
+    pub fn trace() {
+        INIT.call_once(|| {
+            tracing_subscriber::fmt()
+                .with_env_filter("debug")
+                // .with_thread_ids(true)
+                .with_file(true)
+                .with_line_number(true)
+                .pretty()
+                .init();
+        });
+    }
 
     #[test]
-    fn testing_abs() {
+    fn testing_abs_function() {
         let value = Cpu::abs(0xfe);
         assert_eq!(value, 0x02);
     }
 
     #[test]
-    fn test_cpu_execution() {
+    fn testing_cpu_execution() {
         let mut bus = Bus::new(16384);
         let program = vec![
             0x3e, 0xff, 0x06, 0x80, 0x0e, 0xaa, 0x16, 0x55, 0x1e, 0x10, 0x26, 0x20, 0x2e, 0x40,
@@ -4137,6 +4204,7 @@ mod tests {
         for (addr, &opcode) in program.iter().enumerate() {
             bus.write_mem(addr as u16, opcode);
         }
+        bus.write_mem(0x2000, 0xaa);
 
         let mut cpu = Cpu::new(bus);
         cpu.steps(7);
@@ -4164,16 +4232,30 @@ mod tests {
 
         cpu.step();
         assert_eq!(cpu.registers.reg_a, 0xfe);
+        cpu.registers.reg_a = cpu.inc(cpu.registers.reg_a);
+        cpu.registers.reg_a = cpu.inc(cpu.registers.reg_a);
+        assert_eq!(cpu.registers.reg_a, 0x00);
+        assert_eq!(cpu.registers.reg_f.c, true);
+        cpu.or(Type::Immediate(0x80));
+        assert_eq!(cpu.registers.reg_a, 0x80);
+        cpu.xor(Type::Immediate(0x81));
+        assert_eq!(cpu.registers.reg_a, 0x01);
+        cpu.and(Type::Immediate(0xfe));
+        assert_eq!(cpu.registers.reg_a, 0x00);
 
         cpu.registers.set_bc(0x1234);
         cpu.registers.set_ix(0x4321);
         cpu.step();
-
         assert_eq!(cpu.registers.get_ix(), 0x5555);
+
+        cpu.registers.set_hl(0x2000);
+        cpu.xor(Type::Direct(0x2000));
+        assert_eq!(cpu.registers.reg_a, 0xaa);
     }
 
     #[test]
-    fn test_cpu_execution_full() {
+    fn testing_cpu_full_test() {
+        trace();
         let mut bus = Bus::new(65535);
         let program = include_bytes!("../tests/z80full.bin").to_vec();
 

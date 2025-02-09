@@ -89,7 +89,7 @@ mod tests {
     use super::Registers;
 
     #[test]
-    fn testing_registers() {
+    fn test_basic_register_functions() {
         let mut registers = Registers::new();
         registers.set_ix(0xaa55);
         assert_eq!(registers.reg_ixh, 0xaa);

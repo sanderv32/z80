@@ -1,13 +1,13 @@
 #[derive(Default, Debug)]
 pub struct Flags {
-    pub s: bool,        // bit7
-    pub z: bool,        // bit6
-    pub x: bool,        // bit5
-    pub h: bool,        // bit4
-    pub y: bool,        // bit3
-    pub p: bool,        // bit2
-    pub n: bool,        // bit1
-    pub c: bool,        // bit0
+    pub s: bool, // bit7
+    pub z: bool, // bit6
+    pub x: bool, // bit5
+    pub h: bool, // bit4
+    pub y: bool, // bit3
+    pub p: bool, // bit2
+    pub n: bool, // bit1
+    pub c: bool, // bit0
 }
 
 impl Flags {
@@ -68,7 +68,7 @@ mod tests {
     use crate::registers::Registers;
 
     #[test]
-    fn testing_flags() {
+    fn testing_flags_functions() {
         let mut registers = Registers::new();
         registers.reg_f = 0x80.into();
         assert_eq!(registers.reg_f.to_byte(), 0x80);

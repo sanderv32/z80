@@ -3,7 +3,8 @@ name = "z80"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[dev-dependencies]
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 
 [profile.dev]
 debug = true
