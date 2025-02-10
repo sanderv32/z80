@@ -167,19 +167,27 @@ impl Cpu {
         self.registers.reg_f.z = value == 0;
         self.registers.reg_f.s = (value as i8) < 0;
         self.registers.reg_f.p = r1 == 0x80;
-        self.registers.reg_f.h = (r1 & 0x0f) < 1;
+        self.registers.reg_f.h = ((r1 & 0x0f) as i8) < 1;
         self.registers.reg_f.n = true;
         value
     }
 
-    fn add(&mut self, r1: u8, with_carry: bool) {
-        let carry = if with_carry {
-            match self.registers.reg_f.c {
-                true => 1,
-                false => 0,
-            }
-        } else {
-            0
+    fn add(&mut self, r1: u8) {
+        let a = self.registers.reg_a;
+        let value = a.wrapping_add(r1);
+        self.registers.reg_f.s = (value as i8) < 0;
+        self.registers.reg_f.z = value == 0;
+        self.registers.reg_f.h = (value & 0x0f) + (a & 0x0f) > 0x0f;
+        self.registers.reg_f.c = u16::from(a) + u16::from(r1) > 0xff;
+        self.registers.reg_f.p = (a as i8).overflowing_add(value as i8).1;
+        self.registers.reg_f.n = false;
+        self.registers.reg_a = value;
+    }
+
+    fn adc(&mut self, r1: u8) {
+        let carry = match self.registers.reg_f.c {
+            true => 1,
+            false => 0,
         };
         let a = self.registers.reg_a;
         let value = a.wrapping_add(r1).wrapping_add(carry);
@@ -201,12 +209,17 @@ impl Cpu {
     }
 
     fn adc16(&mut self, r1: u16, r2: u16) -> u16 {
-        let value = r1.wrapping_add(r2);
+        let c = match self.registers.reg_f.c {
+            true => 1,
+            false => 0,
+        };
+        let value = r1.wrapping_add(r2).wrapping_add(c);
+        self.registers.set_hl(value);
         self.registers.reg_f.s = (value as i16) < 0;
         self.registers.reg_f.z = value == 0;
-        self.registers.reg_f.h = (value & 0x0fff) + (r1 & 0x0fff) + (r2 & 0x0fff) > 0x0fff;
-        self.registers.reg_f.c = u32::from(r1) + u32::from(r2) + u32::from(r1) > 0xffff;
-        self.registers.reg_f.p = (r1 as i16).overflowing_add(value as i16).1;
+        self.registers.reg_f.h = (value & 0x0fff) + (r1 & 0x0fff) + c > 0x0fff;
+        self.registers.reg_f.c = u32::from(r1) + u32::from(r2) + u32::from(c) > 0xffff;
+        self.registers.reg_f.p = (value as i16).overflowing_add((r1 + c) as i16).1;
         self.registers.reg_f.n = false;
         value
     }
@@ -214,15 +227,22 @@ impl Cpu {
     /// Substract `r1` from register A
     ///
     /// r1: Register to substract from A
-    /// with_carry: Use SUB if not set otherwise use SBC.
-    fn sub(&mut self, r1: u8, with_carry: bool) {
-        let carry: u8 = if with_carry {
-            match self.registers.reg_f.c {
-                true => 1,
-                false => 0,
-            }
-        } else {
-            0
+    fn sub(&mut self, r1: u8) {
+        let a = self.registers.reg_a;
+        let value = a.wrapping_sub(r1);
+        self.registers.reg_f.s = (value as i8) < 0;
+        self.registers.reg_f.z = value == 0;
+        self.registers.reg_f.h = (a as i8 & 0x0f) < (value as i8 & 0x0f);
+        self.registers.reg_f.c = u16::from(a) < u16::from(r1);
+        self.registers.reg_f.p = (a as i8).overflowing_sub(value as i8).1;
+        self.registers.reg_f.n = true;
+        self.registers.reg_a = value;
+    }
+
+    fn sbc(&mut self, r1: u8) {
+        let carry: u8 = match self.registers.reg_f.c {
+            true => 1,
+            false => 0,
         };
         let a = self.registers.reg_a;
         let value = a.wrapping_sub(r1.wrapping_add(carry));
@@ -231,27 +251,22 @@ impl Cpu {
         self.registers.reg_f.h = (a as i8 & 0x0f) < (value as i8 & 0x0f).wrapping_add(carry as i8);
         self.registers.reg_f.c = u16::from(a) < (u16::from(r1) + u16::from(carry));
         self.registers.reg_f.p = (a as i8).overflowing_sub(value.wrapping_add(carry) as i8).1;
-        self.registers.reg_f.n = if with_carry { true } else { false };
+        self.registers.reg_f.n = true;
         self.registers.reg_a = value;
     }
 
-    fn sub16(&mut self, r1: u16, with_carry: bool) {
-        let carry: u16 = if with_carry {
-            match self.registers.reg_f.c {
-                true => 1,
-                false => 0,
-            }
-        } else {
-            0
+    fn sbc16(&mut self, r1: u16) {
+        let carry: u16 = match self.registers.reg_f.c {
+            true => 1,
+            false => 0,
         };
         let hl = self.registers.get_hl();
-        let value = hl.wrapping_sub(r1);
+        let value = hl.wrapping_sub(r1).wrapping_sub(carry);
+        self.registers.set_hl(value);
         self.registers.reg_f.s = (value as i16) < 0;
         self.registers.reg_f.z = value == 0;
         self.registers.reg_f.h = (hl & 0x0fff) < (r1 & 0x0fff) + carry;
-        self.registers.reg_f.p = (hl as i16)
-            .overflowing_sub(value.wrapping_add(carry) as i16)
-            .1;
+        self.registers.reg_f.p = (hl as i16).overflowing_sub((value + carry) as i16).1;
         self.registers.reg_f.n = true;
         self.registers.reg_f.c = hl < r1 + carry;
     }
@@ -300,12 +315,9 @@ impl Cpu {
     /// r1: Register to compare
     /// Flags are set based on the result
     fn cp(&mut self, r1: u8) {
-        let (rval, c) = self.registers.reg_a.overflowing_sub(r1);
-        let v = (rval as i8).checked_sub(r1 as i8).is_none();
-        self.registers.reg_f.z = rval == 0;
-        self.registers.reg_f.s = (rval as i8) < 0;
-        self.registers.reg_f.n = true;
-        self.registers.reg_f.c = c;
+        let a = self.registers.reg_a;
+        self.sub(r1);
+        self.registers.reg_a = a;
     }
 
     fn pop_stack(&mut self) {
@@ -578,7 +590,6 @@ impl Cpu {
                         self.registers.reg_pc += 1 + value as u16;
                     }
                 }
-                self.registers.reg_pc += 1;
             }
             0x11 => {
                 // ld de,nn
@@ -677,8 +688,9 @@ impl Cpu {
                     } else {
                         self.registers.reg_pc += 1 + value as u16;
                     }
+                } else {
+                    self.registers.reg_pc += 1;
                 }
-                self.registers.reg_pc += 1;
             }
             0x21 => {
                 // ld hl,nn
@@ -724,8 +736,9 @@ impl Cpu {
                     } else {
                         self.registers.reg_pc += 1 + value as u16;
                     }
+                } else {
+                    self.registers.reg_pc += 1;
                 }
-                self.registers.reg_pc += 1;
             }
             0x29 => {
                 // add hl,hl
@@ -772,8 +785,9 @@ impl Cpu {
                     } else {
                         self.registers.reg_pc += 1 + value as u16;
                     }
+                } else {
+                    self.registers.reg_pc += 1;
                 }
-                self.registers.reg_pc += 1;
             }
             0x31 => {
                 // ld sp,nn
@@ -824,8 +838,9 @@ impl Cpu {
                     } else {
                         self.registers.reg_pc += 1 + value as u16;
                     }
+                } else {
+                    self.registers.reg_pc += 1;
                 }
-                self.registers.reg_pc += 1;
             }
             0x39 => {
                 // add hl,sp
@@ -1121,135 +1136,135 @@ impl Cpu {
             }
             0x80 => {
                 // add a,b
-                self.add(self.registers.reg_b, false);
+                self.add(self.registers.reg_b);
             }
             0x81 => {
                 // add a,c
-                self.add(self.registers.reg_c, false);
+                self.add(self.registers.reg_c);
             }
             0x82 => {
                 // add a,d
-                self.add(self.registers.reg_d, false);
+                self.add(self.registers.reg_d);
             }
             0x83 => {
                 // add a,e
-                self.add(self.registers.reg_e, false);
+                self.add(self.registers.reg_e);
             }
             0x84 => {
                 // add a,h
-                self.add(self.registers.reg_h, false);
+                self.add(self.registers.reg_h);
             }
             0x85 => {
                 // add a,l
-                self.add(self.registers.reg_l, false);
+                self.add(self.registers.reg_l);
             }
             0x86 => {
                 // add a,(hl)
                 let hl = self.registers.get_hl();
-                self.add(self.bus.read_mem(hl), false);
+                self.add(self.bus.read_mem(hl));
             }
             0x87 => {
                 // add a,a
-                self.add(self.registers.reg_a, false);
+                self.add(self.registers.reg_a);
             }
             0x88 => {
                 // adc a,b
-                self.add(self.registers.reg_b, true);
+                self.adc(self.registers.reg_b);
             }
             0x89 => {
                 // adc a,c
-                self.add(self.registers.reg_c, true);
+                self.adc(self.registers.reg_c);
             }
             0x8a => {
                 // adc a,d
-                self.add(self.registers.reg_d, true);
+                self.adc(self.registers.reg_d);
             }
             0x8b => {
                 // adc a,e
-                self.add(self.registers.reg_e, true);
+                self.adc(self.registers.reg_e);
             }
             0x8c => {
                 // adc a,h
-                self.add(self.registers.reg_h, true);
+                self.adc(self.registers.reg_h);
             }
             0x8d => {
                 // adc a,l
-                self.add(self.registers.reg_l, true);
+                self.adc(self.registers.reg_l);
             }
             0x8e => {
                 // adc a,(hl)
                 let hl = self.registers.get_hl();
-                self.add(self.bus.read_mem(hl), true);
+                self.adc(self.bus.read_mem(hl));
             }
             0x8f => {
                 // adc a,a
-                self.add(self.registers.reg_a, true);
+                self.adc(self.registers.reg_a);
             }
             0x90 => {
                 // sub b
-                self.sub(self.registers.reg_b, false);
+                self.sub(self.registers.reg_b);
             }
             0x91 => {
                 // sub c
-                self.sub(self.registers.reg_c, false);
+                self.sub(self.registers.reg_c);
             }
             0x92 => {
                 // sub d
-                self.sub(self.registers.reg_d, false);
+                self.sub(self.registers.reg_d);
             }
             0x93 => {
                 // sub e
-                self.sub(self.registers.reg_e, false);
+                self.sub(self.registers.reg_e);
             }
             0x94 => {
                 // sub h
-                self.sub(self.registers.reg_h, false);
+                self.sub(self.registers.reg_h);
             }
             0x95 => {
                 // sub l
-                self.sub(self.registers.reg_l, false);
+                self.sub(self.registers.reg_l);
             }
             0x96 => {
                 // sub (hl)
                 let hl = self.registers.get_hl();
-                self.sub(self.bus.read_mem(hl), false);
+                self.sub(self.bus.read_mem(hl));
             }
             0x97 => {
                 // sub a
-                self.sub(self.registers.reg_a, false);
+                self.sub(self.registers.reg_a);
             }
             0x98 => {
                 // sbc b
-                self.sub(self.registers.reg_b, true);
+                self.sbc(self.registers.reg_b);
             }
             0x99 => {
                 // sbc c
-                self.sub(self.registers.reg_c, true);
+                self.sbc(self.registers.reg_c);
             }
             0x9a => {
                 // sbc d
-                self.sub(self.registers.reg_d, true);
+                self.sbc(self.registers.reg_d);
             }
             0x9b => {
                 // sbc e
-                self.sub(self.registers.reg_e, true);
+                self.sbc(self.registers.reg_e);
             }
             0x9c => {
                 // sbc h
-                self.sub(self.registers.reg_h, true);
+                self.sbc(self.registers.reg_h);
             }
             0x9d => {
                 // sbc l
-                self.sub(self.registers.reg_l, true);
+                self.sbc(self.registers.reg_l);
             }
             0x9e => {
                 // sbc (hl)
                 let hl = self.registers.get_hl();
-                self.sub(self.bus.read_mem(hl), true);
+                self.sbc(self.bus.read_mem(hl));
             }
             0x9f => {
                 // sbc a
-                self.sub(self.registers.reg_a, true);
+                self.sbc(self.registers.reg_a);
             }
             0xa0 => {
                 // and b
@@ -1425,7 +1440,7 @@ impl Cpu {
             }
             0xc6 => {
                 // add a,n
-                self.add(self.bus.read_mem(self.registers.reg_pc), false);
+                self.add(self.bus.read_mem(self.registers.reg_pc));
                 self.registers.reg_pc += 1;
             }
             0xc7 => {
@@ -1453,7 +1468,6 @@ impl Cpu {
                 }
             }
             0xcb => {
-                // self.registers.reg_pc += 1; // skip 0xcb opcode
                 let opcode = self.bus.read_mem(self.registers.reg_pc);
                 self.registers.reg_pc += 1;
                 match opcode {
@@ -2531,6 +2545,8 @@ impl Cpu {
                 if self.registers.reg_f.z {
                     self.push_stack(self.registers.reg_pc);
                     self.registers.reg_pc = nn;
+                } else {
+                    self.registers.reg_pc += 2
                 }
             }
             0xcd => {
@@ -2542,7 +2558,7 @@ impl Cpu {
             0xce => {
                 // adc a,n
                 let n = self.bus.read_mem(self.registers.reg_pc);
-                self.add(n, true);
+                self.adc(n);
                 self.registers.reg_pc += 1;
             }
             0xcf => {
@@ -2596,7 +2612,7 @@ impl Cpu {
             0xd6 => {
                 // sub n
                 let n = self.bus.read_mem(self.registers.reg_pc);
-                self.sub(n, false);
+                self.sub(n);
                 self.registers.reg_pc += 1;
             }
             0xd7 => {
@@ -2658,11 +2674,11 @@ impl Cpu {
                     let nn = self.bus.read_mem_u16(self.registers.reg_pc);
                     self.push_stack(self.registers.reg_pc);
                     self.registers.reg_pc = nn;
+                } else {
+                    self.registers.reg_pc += 2;
                 }
-                self.registers.reg_pc += 2;
             }
             0xdd => {
-                // self.registers.reg_pc += 1; // Skip 0xdd opcode
                 let opcode = self.bus.read_mem(self.registers.reg_pc);
                 self.registers.reg_pc += 1;
                 match opcode {
@@ -2846,28 +2862,28 @@ impl Cpu {
                         // add a,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.add(value, false);
+                        self.add(value);
                         self.registers.reg_pc += 1;
                     }
                     0x8e => {
                         // adc a,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.add(value, true);
+                        self.adc(value);
                         self.registers.reg_pc += 1;
                     }
                     0x96 => {
                         // sub (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.sub(value, false);
+                        self.sub(value);
                         self.registers.reg_pc += 1;
                     }
                     0x9e => {
                         // sbc a,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.sub(value, true);
+                        self.sbc(value);
                         self.registers.reg_pc += 1;
                     }
                     0xa6 => {
@@ -2899,7 +2915,6 @@ impl Cpu {
                         self.registers.reg_pc += 1;
                     }
                     0xcb => {
-                        // self.registers.reg_pc += 1; // Skip 0xcb opcode
                         let opcode = self.bus.read_mem(self.registers.reg_pc);
                         self.registers.reg_pc += 1;
                         match opcode {
@@ -3164,7 +3179,7 @@ impl Cpu {
             0xde => {
                 // sbc a,n
                 let n = self.bus.read_mem(self.registers.reg_pc);
-                self.sub(n, true);
+                self.sbc(n);
             }
             0xdf => {
                 // rst 18h
@@ -3262,7 +3277,6 @@ impl Cpu {
                 }
             }
             0xed => {
-                // self.registers.reg_pc += 1; // Skip 0xED opcode
                 let opcode = self.bus.read_mem(self.registers.reg_pc);
                 self.registers.reg_pc += 1;
                 match opcode {
@@ -3278,7 +3292,7 @@ impl Cpu {
                     0x42 => {
                         // sbc hl,bc
                         let bc = self.registers.get_bc();
-                        self.sub16(bc, true);
+                        self.sbc16(bc);
                     }
                     0x43 => {
                         // ld (nn),bc
@@ -3350,7 +3364,7 @@ impl Cpu {
                     0x52 => {
                         // sbc hl,de
                         let de = self.registers.get_de();
-                        self.sub16(de, true);
+                        self.sbc16(de);
                     }
                     0x53 => {
                         // ld (nn),de
@@ -3365,6 +3379,11 @@ impl Cpu {
                     0x57 => {
                         // ld a,i
                         self.registers.reg_a = self.registers.reg_i;
+                        self.registers.reg_f.z = self.registers.reg_i == 0;
+                        self.registers.reg_f.s = (self.registers.reg_i as i8) < 0;
+                        self.registers.reg_f.p = self.iff2;
+                        self.registers.reg_f.n = false;
+                        self.registers.reg_f.h = false;
                     }
                     0x58 => {
                         // in e,(c)
@@ -3392,6 +3411,15 @@ impl Cpu {
                         // im 2
                         self.im = 2;
                     }
+                    0x5f => {
+                        // ld a,r
+                        self.registers.reg_a = self.registers.reg_r;
+                        self.registers.reg_f.z = self.registers.reg_r == 0;
+                        self.registers.reg_f.s = (self.registers.reg_r as i8) < 0;
+                        self.registers.reg_f.p = self.iff2;
+                        self.registers.reg_f.n = false;
+                        self.registers.reg_f.h = false;
+                    }
                     0x60 => {
                         // in h,(c)
                         // TODO: Implement
@@ -3404,7 +3432,7 @@ impl Cpu {
                     0x62 => {
                         // sbc hl,hl
                         let hl = self.registers.get_hl();
-                        self.sub16(hl, true);
+                        self.sbc16(hl);
                     }
                     0x67 => {
                         // rrd
@@ -3440,7 +3468,7 @@ impl Cpu {
                     0x72 => {
                         // sbc hl,sp
                         let sp = self.registers.get_sp();
-                        self.sub16(sp, true);
+                        self.sbc16(sp);
                     }
                     0x73 => {
                         // ld (nn),sp
@@ -3616,11 +3644,18 @@ impl Cpu {
             0xf3 => {
                 // di
                 self.interrupts_enabled = false;
+                self.iff1 = false;
+                self.iff2 = false;
             }
             0xf4 => {
                 // call p,nn
-                let value = self.bus.read_mem_u16(self.registers.reg_pc);
-                self.registers.reg_pc += 2;
+                if !self.registers.reg_f.s {
+                    let value = self.bus.read_mem_u16(self.registers.reg_pc);
+                    self.push_stack(self.registers.reg_pc);
+                    self.registers.reg_pc = value;
+                } else {
+                    self.registers.reg_pc += 2;
+                }
             }
             0xf5 => {
                 // push af
@@ -3662,6 +3697,8 @@ impl Cpu {
             0xfb => {
                 // ei
                 self.interrupts_enabled = true;
+                self.iff1 = true;
+                self.iff2 = true;
             }
             0xfc => {
                 // call m,nn
@@ -3866,7 +3903,7 @@ impl Cpu {
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let iy = self.registers.get_iy();
                         let value = self.bus.read_mem(iy + n as u16);
-                        self.add(value, false);
+                        self.add(value);
                         self.registers.reg_pc += 1;
                     }
                     0x8e => {
@@ -3874,7 +3911,7 @@ impl Cpu {
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let iy = self.registers.get_iy();
                         let value = self.bus.read_mem(iy + n as u16);
-                        self.add(value, true);
+                        self.adc(value);
                         self.registers.reg_pc += 1;
                     }
                     0x96 => {
@@ -3882,7 +3919,7 @@ impl Cpu {
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let iy = self.registers.get_iy();
                         let value = self.bus.read_mem(iy + n as u16);
-                        self.sub(value, false);
+                        self.sub(value);
                         self.registers.reg_pc += 1;
                     }
                     0x9e => {
@@ -3890,7 +3927,7 @@ impl Cpu {
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let iy = self.registers.get_iy();
                         let value = self.bus.read_mem(iy + n as u16);
-                        self.sub(value, true);
+                        self.sbc(value);
                         self.registers.reg_pc += 1;
                     }
                     0xa6 => {
@@ -4145,7 +4182,6 @@ impl Cpu {
 
     pub fn steps(&mut self, no_steps: u16) {
         for _ in 0..no_steps {
-            // self.step();
             self.step();
         }
     }
@@ -4169,6 +4205,7 @@ mod tests {
 
     use super::Cpu;
     use super::Type;
+    use std::io::Write;
     use std::sync::Once;
 
     #[allow(dead_code)]
@@ -4185,6 +4222,31 @@ mod tests {
                 .pretty()
                 .init();
         });
+    }
+
+    pub fn zx_spectrum_print(cpu: &mut Cpu) {
+        static mut TAB: bool = false;
+        let a = cpu.registers.reg_a;
+        if unsafe { TAB } {
+            print!("{}", " ".repeat(a as usize));
+            unsafe {
+                TAB = false;
+            };
+        } else {
+            match a {
+                13 => println!(),
+                16..=22 => (),
+                23 => {
+                    unsafe { TAB = true };
+                }
+                32..=126 => {
+                    std::io::stdout().flush().unwrap();
+                    print!("{}", a as char);
+                    std::io::stdout().flush().unwrap();
+                }
+                _ => (),
+            }
+        }
     }
 
     #[test]
@@ -4257,7 +4319,7 @@ mod tests {
     fn testing_cpu_full_test() {
         trace();
         let mut bus = Bus::new(65535);
-        let program = include_bytes!("../tests/z80full.bin").to_vec();
+        let program = include_bytes!("../tests/z80ccf.bin").to_vec();
 
         for (offset, &opcode) in program.iter().enumerate() {
             bus.write_mem(0x8000 + offset as u16, opcode);
@@ -4271,16 +4333,20 @@ mod tests {
         cpu.registers.reg_pc = 0x8000;
         cpu.registers.set_sp(0xffff);
 
-        while cpu.registers.reg_pc != 0x8095 {
-            println!("PC: {:#04x}", cpu.registers.reg_pc);
+        while cpu.registers.reg_pc != 0x8094 {
+            // println!("PC: {:#04x}", cpu.registers.reg_pc);
             if cpu.halt {
-                println!("HALT");
+                // dbg!("HALT");
+                zx_spectrum_print(&mut cpu);
                 cpu.pop_stack();
                 cpu.halt = false;
+            }
+            if cpu.registers.reg_pc == 0x8200 {
+                eprint!("");
             }
             cpu.step();
         }
 
-        assert_eq!(cpu.registers.reg_pc, 0x8095);
+        assert_eq!(cpu.registers.reg_pc, 0x8094);
     }
 }
