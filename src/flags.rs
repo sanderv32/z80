@@ -13,14 +13,14 @@ pub struct Flags {
 impl Flags {
     pub fn new() -> Self {
         Self {
-            s: false,
-            z: false,
-            x: false,
-            h: false,
-            y: false,
-            p: false,
-            n: false,
-            c: false,
+            s: true,
+            z: true,
+            x: true,
+            h: true,
+            y: true,
+            p: true,
+            n: true,
+            c: true,
         }
     }
 
@@ -72,7 +72,10 @@ mod tests {
         let mut registers = Registers::new();
         registers.reg_f = 0x80.into();
         assert_eq!(registers.reg_f.to_byte(), 0x80);
-        let flags = registers.reg_f;
+        let flags = &registers.reg_f;
         assert_eq!(flags.s, true);
+
+        registers.reg_f.c = true;
+        assert_eq!(registers.reg_f.to_byte(), 0x81);
     }
 }

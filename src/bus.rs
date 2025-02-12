@@ -16,6 +16,22 @@ struct Rom {
     pub end: u16,
 }
 
+impl Io for Bus {
+    fn write_io(&mut self, address: u16, value: u8) {
+        // println!("Writing to IO: {:04x} = {:02x}", address, value);
+        self.io[(address & 0xff) as usize] = value;
+    }
+
+    fn read_io(&self, address: u16) -> u8 {
+        // println!("Reading from IO: {:04x}", address);
+        if (address & 0xff) == 0xfe {
+            0xbf
+        } else {
+            self.io[(address & 0xff) as usize]
+        }
+    }
+}
+
 impl Bus {
     /// Create new bus with memory
     ///

@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 
 use crate::bus::Bus;
+use crate::bus::Io;
 use crate::registers::Registers;
 use crate::registers::Regs;
 
@@ -322,11 +323,13 @@ impl Cpu {
 
     fn pop_stack(&mut self) {
         self.registers.reg_pc = self.bus.read_mem_u16(self.registers.reg_sp);
-        self.registers.reg_sp += 2;
+        // self.registers.reg_sp += 2;
+        self.registers.reg_sp = self.registers.reg_sp.wrapping_add(2);
     }
 
     fn push_stack(&mut self, value: u16) {
-        self.registers.reg_sp -= 2;
+        // self.registers.reg_sp -= 2;
+        self.registers.reg_sp = self.registers.reg_sp.wrapping_sub(2);
         self.bus.write_mem_u16(self.registers.reg_sp, value);
     }
 
@@ -572,10 +575,15 @@ impl Cpu {
             0x0f => {
                 // rrca
                 let carry = self.registers.reg_a & 0x01;
+                let a = if self.registers.reg_f.c {
+                    self.registers.reg_a >> 1 | 0x80
+                } else {
+                    self.registers.reg_a >> 1
+                };
                 self.registers.reg_f.h = false;
                 self.registers.reg_f.n = false;
                 self.registers.reg_f.c = carry == 0x01;
-                self.registers.reg_a = (self.registers.reg_a >> 1) | (carry << 7);
+                self.registers.reg_a = a;
             }
             0x10 => {
                 // djnz $+2
@@ -583,7 +591,7 @@ impl Cpu {
                 if self.registers.reg_b == 0 {
                     self.registers.reg_pc += 1;
                 } else {
-                    let value = self.bus.read_mem(self.registers.reg_pc + 1);
+                    let value = self.bus.read_mem(self.registers.reg_pc);
                     if value & 0x80 == 0x80 {
                         self.registers.reg_pc -= Cpu::abs(value) as u16 - 1;
                     } else {
@@ -593,7 +601,7 @@ impl Cpu {
             }
             0x11 => {
                 // ld de,nn
-                let nn = self.bus.read_mem_u16(self.registers.reg_pc + 1);
+                let nn = self.bus.read_mem_u16(self.registers.reg_pc);
                 self.registers.set_de(nn);
                 self.registers.reg_pc += 2
             }
@@ -623,10 +631,14 @@ impl Cpu {
             }
             0x17 => {
                 // rla
+                let c = match self.registers.reg_f.c {
+                    true => 1u8,
+                    false => 0u8,
+                };
                 self.registers.reg_f.h = false;
                 self.registers.reg_f.n = false;
                 self.registers.reg_f.c = self.registers.reg_a & 0x80 == 0x80;
-                self.registers.reg_a <<= 1;
+                self.registers.reg_a <<= 1 | c;
             }
             0x18 => {
                 // jr $+2
@@ -749,7 +761,8 @@ impl Cpu {
             0x2a => {
                 // ld hl,(nn)
                 let nn = self.bus.read_mem_u16(self.registers.reg_pc);
-                self.registers.set_hl(nn);
+                let n = self.bus.read_mem_u16(nn);
+                self.registers.set_hl(n);
                 self.registers.reg_pc += 2;
             }
             0x2b => {
@@ -852,7 +865,8 @@ impl Cpu {
             0x3a => {
                 // ld a,(nn)
                 let nn = self.bus.read_mem_u16(self.registers.reg_pc);
-                self.registers.reg_a = self.bus.read_mem(nn);
+                let n = self.bus.read_mem_u16(nn);
+                self.registers.reg_a = self.bus.read_mem(n);
                 self.registers.reg_pc += 2;
             }
             0x3b => {
@@ -2590,7 +2604,8 @@ impl Cpu {
             0xd3 => {
                 // out (n),a
                 let n = self.bus.read_mem(self.registers.reg_pc);
-                // TODO: implement output
+                let a = (self.registers.reg_a as u16) << 8;
+                self.bus.write_io(n as u16 | a, self.registers.reg_a);
                 self.registers.reg_pc += 1;
             }
             0xd4 => {
@@ -2627,30 +2642,19 @@ impl Cpu {
                 }
             }
             0xd9 => {
-                // exx
-                let mut temp = self.registers.reg_b;
-                self.registers.reg_b = self.alternate.reg_b;
-                self.alternate.reg_b = temp;
-
-                temp = self.registers.reg_c;
-                self.registers.reg_c = self.alternate.reg_c;
-                self.alternate.reg_c = temp;
-
-                temp = self.registers.reg_d;
-                self.registers.reg_d = self.alternate.reg_d;
-                self.alternate.reg_d = temp;
-
-                temp = self.registers.reg_e;
-                self.registers.reg_e = self.alternate.reg_e;
-                self.alternate.reg_e = temp;
-
-                temp = self.registers.reg_h;
-                self.registers.reg_h = self.alternate.reg_h;
-                self.alternate.reg_h = temp;
-
-                temp = self.registers.reg_l;
-                self.registers.reg_l = self.alternate.reg_l;
-                self.alternate.reg_l = temp;
+                //
+                let bc = self.registers.get_bc();
+                let de = self.registers.get_de();
+                let hl = self.registers.get_hl();
+                let abc = self.alternate.get_bc();
+                let ade = self.alternate.get_de();
+                let ahl = self.alternate.get_hl();
+                self.registers.set_bc(abc);
+                self.registers.set_de(ade);
+                self.registers.set_hl(ahl);
+                self.alternate.set_bc(bc);
+                self.alternate.set_de(de);
+                self.alternate.set_hl(hl);
             }
             0xda => {
                 // jp c,$+3
@@ -2664,8 +2668,9 @@ impl Cpu {
             0xdb => {
                 // in a,(n)
                 let n = self.bus.read_mem(self.registers.reg_pc);
-                // TODO: implement input
-                self.registers.reg_a = 0;
+                self.registers.reg_a = self
+                    .bus
+                    .read_io((n as u16) | (self.registers.reg_a as u16) << 8);
                 self.registers.reg_pc += 1;
             }
             0xdc => {
@@ -2722,7 +2727,8 @@ impl Cpu {
                     0x2a => {
                         // ld ix,(nn)
                         let nn = self.bus.read_mem_u16(self.registers.reg_pc);
-                        self.registers.set_ix(nn);
+                        let n = self.bus.read_mem_u16(nn);
+                        self.registers.set_ix(n);
                         self.registers.reg_pc += 2;
                     }
                     0x2b => {
@@ -3150,10 +3156,10 @@ impl Cpu {
                     }
                     0xe3 => {
                         // ex (sp),ix
-                        let value = self.bus.read_mem_u16(self.registers.reg_sp);
+                        let sp = self.bus.read_mem_u16(self.registers.reg_sp);
                         self.bus
                             .write_mem_u16(self.registers.reg_sp, self.registers.get_ix());
-                        self.registers.set_ix(value);
+                        self.registers.set_ix(sp);
                     }
                     0xe5 => {
                         // push ix
@@ -3209,10 +3215,10 @@ impl Cpu {
             }
             0xe3 => {
                 // ex (sp),hl
-                let value = self.bus.read_mem_u16(self.registers.reg_sp);
+                let sp = self.bus.read_mem_u16(self.registers.reg_sp);
                 self.bus
                     .write_mem_u16(self.registers.reg_sp, self.registers.get_hl());
-                self.registers.set_hl(value);
+                self.registers.set_hl(sp);
             }
             0xe4 => {
                 // call po,nn
@@ -3282,12 +3288,12 @@ impl Cpu {
                 match opcode {
                     0x40 => {
                         // in b,(c)
-                        // TODO: Implement
-                        self.registers.reg_b = 0;
+                        self.registers.reg_b = self.bus.read_io(self.registers.get_bc());
                     }
                     0x41 => {
                         // out (c),b
-                        // TODO: Implement
+                        self.bus
+                            .write_io(self.registers.get_bc(), self.registers.reg_b);
                     }
                     0x42 => {
                         // sbc hl,bc
@@ -3324,12 +3330,13 @@ impl Cpu {
                     }
                     0x48 => {
                         // in c,(c)
-                        // TODO: Implement
-                        self.registers.reg_c = 0;
+                        self.registers.reg_c = self.bus.read_io(self.registers.get_bc());
                     }
                     0x49 => {
                         // out (c),c
                         // TODO: Implement
+                        self.bus
+                            .write_io(self.registers.get_bc(), self.registers.reg_c);
                     }
                     0x4a => {
                         // adc hl,bc
@@ -3341,7 +3348,8 @@ impl Cpu {
                     0x4b => {
                         // ld bc,(nn)
                         let nn = self.bus.read_mem_u16(self.registers.reg_pc);
-                        self.registers.set_bc(nn);
+                        let n = self.bus.read_mem_u16(nn);
+                        self.registers.set_bc(n);
                         self.registers.reg_pc += 2;
                     }
                     0x4d => {
@@ -3354,12 +3362,12 @@ impl Cpu {
                     }
                     0x50 => {
                         // in d,(c)
-                        // TODO: Implement
-                        self.registers.reg_d = 0;
+                        self.registers.reg_d = self.bus.read_io(self.registers.get_bc());
                     }
                     0x51 => {
                         // out (c),d
-                        // TODO: Implement
+                        self.bus
+                            .write_io(self.registers.get_bc(), self.registers.reg_d);
                     }
                     0x52 => {
                         // sbc hl,de
@@ -3387,12 +3395,12 @@ impl Cpu {
                     }
                     0x58 => {
                         // in e,(c)
-                        // TODO: Implement
-                        self.registers.reg_e = 0;
+                        self.registers.reg_e = self.bus.read_io(self.registers.get_bc());
                     }
                     0x59 => {
                         // out (c),e
-                        // TODO: Implement
+                        self.bus
+                            .write_io(self.registers.get_bc(), self.registers.reg_e);
                     }
                     0x5a => {
                         // adc hl,de
@@ -3404,7 +3412,8 @@ impl Cpu {
                     0x5b => {
                         // ld de,(nn)
                         let nn = self.bus.read_mem_u16(self.registers.reg_pc);
-                        self.registers.set_de(nn);
+                        let n = self.bus.read_mem_u16(nn);
+                        self.registers.set_de(n);
                         self.registers.reg_pc += 2;
                     }
                     0x5e => {
@@ -3422,12 +3431,12 @@ impl Cpu {
                     }
                     0x60 => {
                         // in h,(c)
-                        // TODO: Implement
-                        self.registers.reg_h = 0;
+                        self.registers.reg_h = self.bus.read_io(self.registers.get_bc());
                     }
                     0x61 => {
                         // out (c),h
-                        // TODO: Implement
+                        self.bus
+                            .write_io(self.registers.get_bc(), self.registers.reg_h);
                     }
                     0x62 => {
                         // sbc hl,hl
@@ -3444,12 +3453,12 @@ impl Cpu {
                     }
                     0x68 => {
                         // in l,(c)
-                        // TODO: Implement
-                        self.registers.reg_l = 0;
+                        self.registers.reg_l = self.bus.read_io(self.registers.get_bc());
                     }
                     0x69 => {
                         // out (c),l
-                        // TODO: Implement
+                        self.bus
+                            .write_io(self.registers.get_bc(), self.registers.reg_l);
                     }
                     0x6a => {
                         // adc hl,hl
@@ -3478,12 +3487,12 @@ impl Cpu {
                     }
                     0x78 => {
                         // in a,(c)
-                        // TODO: Implement
-                        self.registers.reg_a = 0;
+                        self.registers.reg_a = self.bus.read_io(self.registers.get_bc());
                     }
                     0x79 => {
                         // out (c),a
-                        // TODO
+                        self.bus
+                            .write_io(self.registers.get_bc(), self.registers.reg_a);
                     }
                     0x7a => {
                         // adc hl,sp
@@ -3495,7 +3504,8 @@ impl Cpu {
                     0x7b => {
                         // ld sp,(nn)
                         let nn = self.bus.read_mem_u16(self.registers.reg_pc);
-                        self.registers.set_sp(nn);
+                        let n = self.bus.read_mem_u16(nn);
+                        self.registers.set_sp(n);
                         self.registers.reg_pc += 2;
                     }
                     0xa0 => {
@@ -3551,7 +3561,7 @@ impl Cpu {
                         let mut hl = self.registers.get_hl();
                         let mut de = self.registers.get_de();
                         let mut bc = self.registers.get_bc();
-                        while bc > 0 {
+                        while bc != 0 {
                             let value = self.bus.read_mem(hl);
                             self.bus.write_mem(de, value);
                             hl = hl.wrapping_add(1);
@@ -3560,7 +3570,7 @@ impl Cpu {
                         }
                         self.registers.reg_f.h = false;
                         self.registers.reg_f.n = false;
-                        self.registers.reg_f.p = bc.wrapping_sub(1) != 0;
+                        self.registers.reg_f.p = bc != 0;
                     }
                     0xb1 => {
                         // cpir
@@ -3667,7 +3677,9 @@ impl Cpu {
             }
             0xf6 => {
                 // or n
-                let value = self.bus.read_mem(self.registers.reg_pc);
+                let n = self.bus.read_mem(self.registers.reg_pc);
+                self.or(Type::Immediate(n));
+                self.registers.reg_pc += 1;
             }
             0xf7 => {
                 // rst 30h
@@ -3754,7 +3766,8 @@ impl Cpu {
                     0x2a => {
                         // ld iy,(nn)
                         let nn = self.bus.read_mem_u16(self.registers.reg_pc);
-                        self.registers.set_iy(nn);
+                        let n = self.bus.read_mem_u16(nn);
+                        self.registers.set_iy(n);
                         self.registers.reg_pc += 2;
                     }
                     0x2b => {
@@ -4132,10 +4145,10 @@ impl Cpu {
                     }
                     0xe3 => {
                         // ex (sp),iy
-                        let value = self.bus.read_mem_u16(self.registers.reg_sp);
+                        let sp = self.bus.read_mem_u16(self.registers.reg_sp);
                         self.bus
                             .write_mem_u16(self.registers.reg_sp, self.registers.get_iy());
-                        self.registers.set_iy(value);
+                        self.registers.set_iy(sp);
                     }
                     0xe5 => {
                         // push iy
@@ -4206,43 +4219,32 @@ mod tests {
     use super::Cpu;
     use super::Type;
     use std::io::Write;
-    use std::sync::Once;
-
-    #[allow(dead_code)]
-    static INIT: Once = Once::new();
-
-    #[allow(dead_code)]
-    pub fn trace() {
-        INIT.call_once(|| {
-            tracing_subscriber::fmt()
-                .with_env_filter("debug")
-                // .with_thread_ids(true)
-                .with_file(true)
-                .with_line_number(true)
-                .pretty()
-                .init();
-        });
-    }
 
     pub fn zx_spectrum_print(cpu: &mut Cpu) {
         static mut TAB: bool = false;
+        static mut XPOS: u8 = 0;
         let a = cpu.registers.reg_a;
         if unsafe { TAB } {
-            print!("{}", " ".repeat(a as usize));
+            let pos = unsafe { a - XPOS };
+            print!("{}", " ".repeat(pos as usize));
             unsafe {
                 TAB = false;
             };
         } else {
             match a {
-                13 => println!(),
+                13 => {
+                    unsafe { XPOS = 0 };
+                    println!()
+                }
                 16..=22 => (),
                 23 => {
                     unsafe { TAB = true };
                 }
-                32..=126 => {
+                32..=127 => {
                     std::io::stdout().flush().unwrap();
                     print!("{}", a as char);
                     std::io::stdout().flush().unwrap();
+                    unsafe { XPOS += 1 };
                 }
                 _ => (),
             }
@@ -4269,6 +4271,7 @@ mod tests {
         bus.write_mem(0x2000, 0xaa);
 
         let mut cpu = Cpu::new(bus);
+        cpu.registers.reg_f.c = false;
         cpu.steps(7);
 
         assert_eq!(cpu.registers.reg_a, 0xff);
@@ -4317,9 +4320,9 @@ mod tests {
 
     #[test]
     fn testing_cpu_full_test() {
-        trace();
         let mut bus = Bus::new(65535);
         let program = include_bytes!("../tests/z80ccf.bin").to_vec();
+        // let program = include_bytes!("../tests/z80full.bin").to_vec();
 
         for (offset, &opcode) in program.iter().enumerate() {
             bus.write_mem(0x8000 + offset as u16, opcode);
@@ -4341,9 +4344,9 @@ mod tests {
                 cpu.pop_stack();
                 cpu.halt = false;
             }
-            if cpu.registers.reg_pc == 0x8200 {
-                eprint!("");
-            }
+            // if cpu.registers.reg_pc == 0x8335 {
+            //     print!(".");
+            // }
             cpu.step();
         }
 
