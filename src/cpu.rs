@@ -2740,23 +2740,46 @@ impl Cpu {
                         // inc (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let ix = self.registers.get_ix();
-                        let value = self.inc(self.bus.read_mem(ix + n as u16));
-                        self.bus.write_mem(ix + n as u16, value);
+                        if n & 0x80 == 0x80 {
+                            let addr = ix - (Cpu::abs(n) as u16);
+                            let value = self.bus.read_mem(addr);
+                            let result = self.inc(value);
+                            self.bus.write_mem(addr, result);
+                        } else {
+                            let addr = ix + n as u16;
+                            let value = self.bus.read_mem(addr);
+                            let result = self.inc(value);
+                            self.bus.write_mem(addr, result);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x35 => {
                         // dec (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let ix = self.registers.get_ix();
-                        let value = self.dec(self.bus.read_mem(ix + n as u16));
-                        self.bus.write_mem(ix + n as u16, value);
+                        if n & 0x80 == 0x80 {
+                            let addr = ix - (Cpu::abs(n) as u16);
+                            let value = self.bus.read_mem(addr);
+                            let result = self.dec(value);
+                            self.bus.write_mem(addr, result);
+                        } else {
+                            let addr = ix + n as u16;
+                            let value = self.bus.read_mem(addr);
+                            let result = self.dec(value);
+                            self.bus.write_mem(addr, result);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x36 => {
                         // ld (ix+n),n
                         let ixn = self.bus.read_mem(self.registers.reg_pc);
                         let n = self.bus.read_mem(self.registers.reg_pc + 1);
-                        self.bus.write_mem(self.registers.get_ix() + ixn as u16, n);
+                        if ixn & 0x80 == 0x80 {
+                            self.bus
+                                .write_mem(self.registers.get_ix() - Cpu::abs(ixn) as u16, n);
+                        } else {
+                            self.bus.write_mem(self.registers.get_ix() + ixn as u16, n);
+                        }
                         self.registers.reg_pc += 2;
                     }
                     0x39 => {
@@ -2769,155 +2792,307 @@ impl Cpu {
                     0x46 => {
                         // ld b,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.registers.reg_b =
-                            self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        if n & 0x80 == 0x80 {
+                            self.registers.reg_b = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                        } else {
+                            self.registers.reg_b =
+                                self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x4e => {
                         // ld c,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.registers.reg_c =
-                            self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        if n & 0x80 == 0x80 {
+                            self.registers.reg_c = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                        } else {
+                            self.registers.reg_c =
+                                self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x56 => {
                         // ld d,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.registers.reg_d =
-                            self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        if n & 0x80 == 0x80 {
+                            self.registers.reg_d = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                        } else {
+                            self.registers.reg_d =
+                                self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x5e => {
                         // ld e,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.registers.reg_e =
-                            self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        if n & 0x80 == 0x80 {
+                            self.registers.reg_e = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                        } else {
+                            self.registers.reg_e =
+                                self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x66 => {
                         // ld h,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.registers.reg_h =
-                            self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        if n & 0x80 == 0x80 {
+                            self.registers.reg_h = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                        } else {
+                            self.registers.reg_h =
+                                self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x6e => {
                         // ld l,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.registers.reg_l =
-                            self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        if n & 0x80 == 0x80 {
+                            self.registers.reg_l = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                        } else {
+                            self.registers.reg_l =
+                                self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x70 => {
                         // ld (ix+n),b
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.bus
-                            .write_mem(self.registers.get_ix() + n as u16, self.registers.reg_b);
+                        if n & 0x80 == 0x80 {
+                            self.bus.write_mem(
+                                self.registers.get_ix() - Cpu::abs(n) as u16,
+                                self.registers.reg_b,
+                            );
+                        } else {
+                            self.bus.write_mem(
+                                self.registers.get_ix() + n as u16,
+                                self.registers.reg_b,
+                            );
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x71 => {
                         // ld (ix+n),c
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.bus
-                            .write_mem(self.registers.get_ix() + n as u16, self.registers.reg_c);
+                        if n & 0x80 == 0x80 {
+                            self.bus.write_mem(
+                                self.registers.get_ix() - Cpu::abs(n) as u16,
+                                self.registers.reg_c,
+                            );
+                        } else {
+                            self.bus.write_mem(
+                                self.registers.get_ix() + n as u16,
+                                self.registers.reg_c,
+                            );
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x72 => {
                         // ld (ix+n),d
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.bus
-                            .write_mem(self.registers.get_ix() + n as u16, self.registers.reg_d);
+                        if n & 0x80 == 0x80 {
+                            self.bus.write_mem(
+                                self.registers.get_ix() - Cpu::abs(n) as u16,
+                                self.registers.reg_d,
+                            );
+                        } else {
+                            self.bus.write_mem(
+                                self.registers.get_ix() + n as u16,
+                                self.registers.reg_d,
+                            );
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x73 => {
                         // ld (ix+n),e
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.bus
-                            .write_mem(self.registers.get_ix() + n as u16, self.registers.reg_e);
+                        if n & 0x80 == 0x80 {
+                            self.bus.write_mem(
+                                self.registers.get_ix() - Cpu::abs(n) as u16,
+                                self.registers.reg_e,
+                            );
+                        } else {
+                            self.bus.write_mem(
+                                self.registers.get_ix() + n as u16,
+                                self.registers.reg_e,
+                            );
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x74 => {
                         // ld (ix+n),h
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.bus
-                            .write_mem(self.registers.get_ix() + n as u16, self.registers.reg_h);
+                        if n & 0x80 == 0x80 {
+                            self.bus.write_mem(
+                                self.registers.get_ix() - Cpu::abs(n) as u16,
+                                self.registers.reg_h,
+                            );
+                        } else {
+                            self.bus.write_mem(
+                                self.registers.get_ix() + n as u16,
+                                self.registers.reg_h,
+                            );
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x75 => {
                         // ld (ix+n),l
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.bus
-                            .write_mem(self.registers.get_ix() + n as u16, self.registers.reg_l);
+                        if n & 0x80 == 0x80 {
+                            self.bus.write_mem(
+                                self.registers.get_ix() - Cpu::abs(n) as u16,
+                                self.registers.reg_l,
+                            );
+                        } else {
+                            self.bus.write_mem(
+                                self.registers.get_ix() + n as u16,
+                                self.registers.reg_l,
+                            );
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x77 => {
                         // ld (ix+n),a
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.bus
-                            .write_mem(self.registers.get_ix() + n as u16, self.registers.reg_a);
+                        if n & 0x80 == 0x80 {
+                            self.bus.write_mem(
+                                self.registers.get_ix() - Cpu::abs(n) as u16,
+                                self.registers.reg_a,
+                            );
+                        } else {
+                            self.bus.write_mem(
+                                self.registers.get_ix() + n as u16,
+                                self.registers.reg_a,
+                            );
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x7e => {
                         // ld a,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        self.registers.reg_a =
-                            self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        if n & 0x80 == 0x80 {
+                            self.registers.reg_a = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                        } else {
+                            self.registers.reg_a =
+                                self.bus.read_mem(self.registers.get_ix() + n as u16);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x86 => {
                         // add a,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.add(value);
+                        if n & 0x80 == 0x80 {
+                            let value = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                            self.add(value);
+                        } else {
+                            let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
+                            self.add(value);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x8e => {
                         // adc a,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.adc(value);
+                        if n & 0x80 == 0x80 {
+                            let value = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                            self.adc(value);
+                        } else {
+                            let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
+                            self.adc(value);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x96 => {
                         // sub (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.sub(value);
+                        if n & 0x80 == 0x80 {
+                            let value = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                            self.sub(value);
+                        } else {
+                            let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
+                            self.sub(value);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0x9e => {
                         // sbc a,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.sbc(value);
+                        if n & 0x80 == 0x80 {
+                            let value = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                            self.sbc(value);
+                        } else {
+                            let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
+                            self.sbc(value);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0xa6 => {
                         // and (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let ix = self.registers.get_ix();
-                        self.and(Type::Direct(ix + n as u16));
+                        if n & 0x80 == 0x80 {
+                            self.and(Type::Direct(ix - Cpu::abs(n) as u16));
+                        } else {
+                            self.and(Type::Direct(ix + n as u16));
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0xae => {
                         // xor (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let ix = self.registers.get_ix();
-                        self.xor(Type::Direct(ix + n as u16));
+                        if n & 0x80 == 0x80 {
+                            self.xor(Type::Direct(ix - Cpu::abs(n) as u16));
+                        } else {
+                            self.xor(Type::Direct(ix + n as u16));
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0xb6 => {
                         // or (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let ix = self.registers.get_ix();
-                        self.or(Type::Direct(ix + n as u16));
+                        if n & 0x80 == 0x80 {
+                            self.or(Type::Direct(ix - Cpu::abs(n) as u16));
+                        } else {
+                            self.or(Type::Direct(ix + n as u16));
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0xbe => {
                         // cp (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                        self.cp(value);
+                        if n & 0x80 == 0x80 {
+                            let value = self
+                                .bus
+                                .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                            self.cp(value);
+                        } else {
+                            let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
+                            self.cp(value);
+                        }
                         self.registers.reg_pc += 1;
                     }
                     0xcb => {
@@ -2928,218 +3103,426 @@ impl Cpu {
                                 // rlc (ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
                                 let ix = self.registers.get_ix();
-                                self.rlc(Type::Direct(ix + n as u16));
+                                if n & 0x80 == 0x80 {
+                                    self.rlc(Type::Direct(ix - Cpu::abs(n) as u16));
+                                } else {
+                                    self.rlc(Type::Direct(ix + n as u16));
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x0e => {
                                 // rrc (ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
                                 let ix = self.registers.get_ix();
-                                self.rrc(Type::Direct(ix + n as u16));
+                                if n & 0x80 == 0x80 {
+                                    self.rrc(Type::Direct(ix - Cpu::abs(n) as u16));
+                                } else {
+                                    self.rrc(Type::Direct(ix + n as u16));
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x16 => {
                                 // rl (ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
                                 let ix = self.registers.get_ix();
-                                self.rl(Type::Direct(ix + n as u16));
+                                if n & 0x80 == 0x80 {
+                                    self.rl(Type::Direct(ix - Cpu::abs(n) as u16));
+                                } else {
+                                    self.rl(Type::Direct(ix + n as u16));
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x1e => {
                                 // rr (ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
                                 let ix = self.registers.get_ix();
-                                self.rr(Type::Direct(ix + n as u16));
+                                if n & 0x80 == 0x80 {
+                                    self.rr(Type::Direct(ix - Cpu::abs(n) as u16));
+                                } else {
+                                    self.rr(Type::Direct(ix + n as u16));
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x26 => {
                                 // sla (ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
                                 let ix = self.registers.get_ix();
-                                self.sla(Type::Direct(ix + n as u16));
+                                if n & 0x80 == 0x80 {
+                                    self.sla(Type::Direct(ix - Cpu::abs(n) as u16));
+                                } else {
+                                    self.sla(Type::Direct(ix + n as u16));
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x2e => {
                                 // sra (ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
                                 let ix = self.registers.get_ix();
-                                self.sra(Type::Direct(ix + n as u16));
+                                if n & 0x80 == 0x80 {
+                                    self.sra(Type::Direct(ix - Cpu::abs(n) as u16));
+                                } else {
+                                    self.sra(Type::Direct(ix + n as u16));
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x46 => {
                                 // bit 0,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bit(0, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.bit(0, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.bit(0, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x4e => {
                                 // bit 1,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bit(1, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.bit(1, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.bit(1, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x56 => {
                                 // bit 2,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bit(2, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.bit(2, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.bit(2, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x5e => {
                                 // bit 3,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bit(3, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.bit(3, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.bit(3, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x66 => {
                                 // bit 4,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bit(4, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.bit(4, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.bit(4, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x6e => {
                                 // bit 5,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bit(5, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.bit(5, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.bit(5, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x76 => {
                                 // bit 6,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bit(6, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.bit(6, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.bit(6, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x7e => {
                                 // bit 7,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bit(7, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.bit(7, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.bit(7, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x86 => {
                                 // res 0,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.res(0, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.res(0, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.res(0, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x8e => {
                                 // res 1,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.res(1, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.res(1, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.res(1, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x96 => {
                                 // res 2,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.res(2, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.res(2, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.res(2, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0x9e => {
                                 // res 3,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.res(3, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.res(3, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.res(3, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xa6 => {
                                 // res 4,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.res(4, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.res(4, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.res(4, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xae => {
                                 // res 5,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.res(5, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.res(5, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.res(5, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xb6 => {
                                 // res 6,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.res(6, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.res(6, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.res(6, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xbe => {
                                 // res 7,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.res(7, value);
+                                if n & 0x80 == 0x80 {
+                                    let value = self
+                                        .bus
+                                        .read_mem(self.registers.get_ix() - Cpu::abs(n) as u16);
+                                    self.res(7, value);
+                                } else {
+                                    let value =
+                                        self.bus.read_mem(self.registers.get_ix() + n as u16);
+                                    self.res(7, value);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xc6 => {
                                 // set 0,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bus
-                                    .write_mem(self.registers.get_ix() + n as u16, value | 0x01);
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    let addr = ix - Cpu::abs(n) as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x01);
+                                } else {
+                                    let addr = ix + n as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x01);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xce => {
                                 // set 1,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bus
-                                    .write_mem(self.registers.get_ix() + n as u16, value | 0x02);
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    let addr = ix - Cpu::abs(n) as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x02);
+                                } else {
+                                    let addr = ix + n as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x02);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xd6 => {
                                 // set 2,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bus
-                                    .write_mem(self.registers.get_ix() + n as u16, value | 0x04);
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    let addr = ix - Cpu::abs(n) as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x04);
+                                } else {
+                                    let addr = ix + n as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x04);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xde => {
                                 // set 3,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bus
-                                    .write_mem(self.registers.get_ix() + n as u16, value | 0x08);
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    let addr = ix - Cpu::abs(n) as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x08);
+                                } else {
+                                    let addr = ix + n as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x08);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xe6 => {
                                 // set 4,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bus
-                                    .write_mem(self.registers.get_ix() + n as u16, value | 0x10);
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    let addr = ix - Cpu::abs(n) as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x10);
+                                } else {
+                                    let addr = ix + n as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x10);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xee => {
                                 // set 5,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bus
-                                    .write_mem(self.registers.get_ix() + n as u16, value | 0x20);
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    let addr = ix - Cpu::abs(n) as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x20);
+                                } else {
+                                    let addr = ix + n as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x20);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xf6 => {
                                 // set 6,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bus
-                                    .write_mem(self.registers.get_ix() + n as u16, value | 0x40);
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    let addr = ix - Cpu::abs(n) as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x40);
+                                } else {
+                                    let addr = ix + n as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x40);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             0xfe => {
                                 // set 7,(ix+n)
                                 let n = self.bus.read_mem(self.registers.reg_pc);
-                                let value = self.bus.read_mem(self.registers.get_ix() + n as u16);
-                                self.bus
-                                    .write_mem(self.registers.get_ix() + n as u16, value | 0x80);
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    let addr = ix - Cpu::abs(n) as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x80);
+                                } else {
+                                    let addr = ix + n as u16;
+                                    let value = self.bus.read_mem(addr);
+                                    self.bus.write_mem(addr, value | 0x80);
+                                }
                                 self.registers.reg_pc += 1;
                             }
                             _ => {
