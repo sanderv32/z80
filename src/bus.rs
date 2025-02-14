@@ -1,4 +1,6 @@
 #![allow(dead_code)] // TODO: Remove this!
+use std::fs::File;
+use std::io::{self, Read};
 
 pub trait Io {
     fn write_io(&mut self, address: u16, value: u8);
@@ -94,8 +96,16 @@ impl Bus {
         self.ram[usize::from(address + 1)] = hb;
     }
 
-    // TODO: Build IO stuff
-    //
+    pub fn load_bin(&mut self, file: &str, org: u16) -> io::Result<usize> {
+        if org as usize >= self.ram.len() {
+            panic!("Write operation after the end of address space !")
+        }
+        let mut f = File::open(file)?;
+        let mut buf = Vec::new();
+        let s = f.read_to_end(&mut buf)?;
+        self.ram[org as usize..(buf.len() + org as usize)].clone_from_slice(&buf[..]);
+        Ok(s)
+    }
 }
 
 #[cfg(test)]

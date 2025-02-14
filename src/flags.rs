@@ -13,14 +13,14 @@ pub struct Flags {
 impl Flags {
     pub fn new() -> Self {
         Self {
-            s: true,
-            z: true,
-            x: true,
-            h: true,
-            y: true,
-            p: true,
-            n: true,
-            c: true,
+            s: false,
+            z: false,
+            x: false,
+            h: false,
+            y: false,
+            p: false,
+            n: false,
+            c: false,
         }
     }
 

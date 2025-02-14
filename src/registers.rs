@@ -56,8 +56,6 @@ impl Registers {
     pub fn new() -> Self {
         Self {
             reg_f: Flags::new(),
-            reg_a: 0xff,
-            reg_sp: 0xffff,
             reg_ixl: 0xff,
             reg_ixh: 0xff,
             reg_iyl: 0xff,
