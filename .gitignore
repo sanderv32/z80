@@ -1,1 +1,4 @@
 /target
+/tests/*.bin
+/tests/*.dll
+/tests/*.json

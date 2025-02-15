@@ -1,12 +1,33 @@
+/// Sign flag
+pub const SF: u8 = 0x80;
+/// Zero flag
+pub const ZF: u8 = 0x40;
+/// Half carry flag
+pub const HF: u8 = 0x10;
+/// Parity flag
+pub const PF: u8 = 0x04;
+/// Add/Subtract flag
+pub const NF: u8 = 0x02;
+/// Carry flag
+pub const CF: u8 = 0x01;
+
 #[derive(Default, Debug)]
 pub struct Flags {
+    /// Sign flag
     pub s: bool, // bit7
+    /// Zero flag
     pub z: bool, // bit6
+    /// Unused flag
     pub x: bool, // bit5
+    /// Half carry flag
     pub h: bool, // bit4
+    /// Unused flag
     pub y: bool, // bit3
+    /// Parity flag
     pub p: bool, // bit2
+    /// Add/Subtract flag
     pub n: bool, // bit1
+    /// Carry flag
     pub c: bool, // bit0
 }
 

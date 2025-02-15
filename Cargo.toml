@@ -1,10 +1,10 @@
 [package]
-name = "z80"
+name = "z80emu"
+description = "Z80 Emulator"
 version = "0.1.0"
 edition = "2021"
 
-[dev-dependencies]
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+[dependencies]
 
 [profile.dev]
 debug = true

@@ -1,16 +1,20 @@
-#![allow(dead_code)] // TODO: Remove this!
-use std::fs::File;
-use std::io::{self, Read};
+extern crate alloc;
+use alloc::vec;
+use alloc::vec::Vec;
 
 pub trait Io {
+    /// Write `value` to IO port `address`
+    ///
+    /// Upper half of the address is set on address
+    /// lines A15-A8 and the lower half on A7-A0 which
+    /// is the 8 bit port number. `value` is written
+    /// to the port.
     fn write_io(&mut self, address: u16, value: u8);
-    fn read_io(&self, address: u16) -> u8;
-}
 
-pub struct Bus {
-    ram: Vec<u8>,
-    rom: Option<Rom>,
-    io: Vec<u8>,
+    /// Read value from IO port `address`
+    ///
+    /// See `write_io`
+    fn read_io(&self, address: u16) -> u8;
 }
 
 struct Rom {
@@ -18,14 +22,18 @@ struct Rom {
     pub end: u16,
 }
 
+pub struct Bus {
+    pub ram: Vec<u8>,
+    rom: Option<Rom>,
+    io: Vec<u8>,
+}
+
 impl Io for Bus {
     fn write_io(&mut self, address: u16, value: u8) {
-        // println!("Writing to IO: {:04x} = {:02x}", address, value);
         self.io[(address & 0xff) as usize] = value;
     }
 
     fn read_io(&self, address: u16) -> u8 {
-        // println!("Reading from IO: {:04x}", address);
         if (address & 0xff) == 0xfe {
             0xbf
         } else {
@@ -50,7 +58,7 @@ impl Bus {
     ///
     /// This sets the rom range and make memory between `start` and `end`
     /// write only. First load the ROM contents on the location and then
-    /// use [set_rom].
+    /// use `set_rom`.
     pub fn set_rom(&mut self, mut start: u16, mut end: u16) {
         if start > end {
             let tmp = start;
@@ -94,17 +102,6 @@ impl Bus {
         let hb = ((value >> 8) & 0xff) as u8;
         self.ram[usize::from(address)] = lb;
         self.ram[usize::from(address + 1)] = hb;
-    }
-
-    pub fn load_bin(&mut self, file: &str, org: u16) -> io::Result<usize> {
-        if org as usize >= self.ram.len() {
-            panic!("Write operation after the end of address space !")
-        }
-        let mut f = File::open(file)?;
-        let mut buf = Vec::new();
-        let s = f.read_to_end(&mut buf)?;
-        self.ram[org as usize..(buf.len() + org as usize)].clone_from_slice(&buf[..]);
-        Ok(s)
     }
 }
 
