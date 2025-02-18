@@ -2,8 +2,12 @@
 pub const SF: u8 = 0x80;
 /// Zero flag
 pub const ZF: u8 = 0x40;
+/// Unused flag
+pub const XF: u8 = 0x20;
 /// Half carry flag
 pub const HF: u8 = 0x10;
+/// Unused flag
+pub const YF: u8 = 0x08;
 /// Parity flag
 pub const PF: u8 = 0x04;
 /// Add/Subtract flag

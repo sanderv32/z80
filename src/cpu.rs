@@ -3,6 +3,7 @@
 
 use crate::bus::Bus;
 use crate::bus::Io;
+use crate::flags::{CF, HF, NF, PF, SF, XF, YF, ZF};
 use crate::registers::Registers;
 use crate::registers::Regs;
 
@@ -75,6 +76,10 @@ impl Cpu {
             Regs::E => self.registers.reg_e,
             Regs::H => self.registers.reg_h,
             Regs::L => self.registers.reg_l,
+            Regs::IXL => self.registers.reg_ixl,
+            Regs::IXH => self.registers.reg_ixh,
+            Regs::IYL => self.registers.reg_iyl,
+            Regs::IYH => self.registers.reg_iyh,
             _ => 0,
         }
     }
@@ -109,55 +114,56 @@ impl Cpu {
     }
 
     fn daa(&mut self) {
-        let mut t = 0;
+        let hn = self.registers.reg_a & 0xf0;
+        let ln = self.registers.reg_a & 0x0f;
+        let cf = self.registers.reg_f.c;
+        let hf = self.registers.reg_f.h;
+        let nf = self.registers.reg_f.n;
+        let diff = match (cf, hn, hf, ln) {
+            (false, 0x00..=0x90, false, 0x00..=0x09) => 0x00,
+            (false, 0x00..=0x90, true, 0x00..=0x09) => 0x06,
+            (false, 0x00..=0x80, _, 0x0a..=0x0f) => 0x06,
+            (false, 0xa0..=0xf0, false, 0x00..=0x09) => 0x60,
+            (true, _, false, 0x00..=0x09) => 0x60,
+            (true, _, true, 0x00..=0x09) => 0x66,
+            (true, _, _, 0x0a..=0x0f) => 0x66,
+            (false, 0x90..=0xf0, _, 0x0a..=0x0f) => 0x66,
+            (false, 0xa0..=0xf0, true, 0x00..=0x09) => 0x66,
+            _ => unreachable!(),
+        };
 
-        if self.registers.reg_f.h || (self.registers.reg_a & 0x0f) > 9 {
-            t += 1;
-        }
+        let carry = match (cf, hn, ln) {
+            (false, 0x00..=0x90, 0x00..=0x09) => 0,
+            (false, 0x00..=0x80, 0x0a..=0x0f) => 0,
+            (false, 0x90..=0xf0, 0x0a..=0x0f) => CF,
+            (false, 0xa0..=0xf0, 0x00..=0x09) => CF,
+            (true, _, _) => CF,
+            _ => unreachable!(),
+        };
 
-        if self.registers.reg_f.c || self.registers.reg_a > 0x99 {
-            t += 2;
-            self.registers.reg_f.c = true;
-        }
+        let hcarry = match (nf, hf, ln) {
+            (false, _, 0x00..=0x09) => 0,
+            (false, _, 0x0a..=0x0f) => HF,
+            (true, false, _) => 0,
+            (true, true, 0x06..=0x0f) => 0,
+            (true, true, 0x00..=0x05) => HF,
+            _ => unreachable!(),
+        };
 
-        if self.registers.reg_f.n && !self.registers.reg_f.h {
-            self.registers.reg_f.h = false;
+        let a = if nf {
+            self.registers.reg_a.wrapping_sub(diff)
         } else {
-            if self.registers.reg_f.n && self.registers.reg_f.h {
-                self.registers.reg_f.h = (self.registers.reg_a & 0x0f) < 6;
-            } else {
-                self.registers.reg_f.h = (self.registers.reg_a & 0x0f) >= 0x0a;
-            }
-        }
+            self.registers.reg_a.wrapping_add(diff)
+        };
 
-        match t {
-            1 => {
-                self.registers.reg_a = if self.registers.reg_f.n {
-                    self.registers.reg_a.wrapping_sub(6)
-                } else {
-                    self.registers.reg_a.wrapping_add(6)
-                };
-            }
-            2 => {
-                self.registers.reg_a = if self.registers.reg_f.n {
-                    self.registers.reg_a.wrapping_sub(0x60)
-                } else {
-                    self.registers.reg_a.wrapping_add(0x60)
-                };
-            }
-            3 => {
-                if self.registers.reg_f.n {
-                    self.registers.reg_a = self.registers.reg_a.wrapping_sub(0x66);
-                } else {
-                    self.registers.reg_a = self.registers.reg_a.wrapping_add(0x66);
-                }
-            }
-            _ => {}
-        }
-
-        self.registers.reg_f.s = (self.registers.reg_a as i8) < 0;
-        self.registers.reg_f.z = self.registers.reg_a == 0;
-        self.registers.reg_f.p = self.registers.reg_a.count_ones() & 1 == 0;
+        self.registers.reg_f.c = carry == CF;
+        self.registers.reg_f.h = hcarry == HF;
+        self.registers.reg_f.s = a & SF == SF;
+        self.registers.reg_f.y = a & YF == YF;
+        self.registers.reg_f.x = a & XF == XF;
+        self.registers.reg_f.z = a == 0;
+        self.registers.reg_f.p = a.count_ones() & 1 == 0;
+        self.registers.reg_a = a;
     }
 
     fn inc(&mut self, r1: u8) -> u8 {
@@ -433,10 +439,14 @@ impl Cpu {
     fn sll(&mut self, t: Type) {
         let r1 = self.get_value(&t);
         self.registers.reg_f.c = r1 & 0x80 == 0x80;
-        self.registers.reg_f.h = false;
-        self.registers.reg_f.n = false;
-        self.registers.reg_f.z = r1 == 0;
-        self.registers.reg_f.s = (r1 as i8) < 0;
+        self.registers.reg_f.x = false;
+        self.registers.reg_f.y = false;
+        // self.registers.reg_f.z = r1 == 0;
+        // self.registers.reg_f.s = (r1 as i8) < 0;
+
+        self.registers.reg_f.p = r1.count_ones() & 0x01 == 0x00;
+        self.registers.reg_f.h = true;
+        self.registers.reg_f.n = true;
         self.set_value(&t, r1 << 1 | 1);
     }
 
@@ -509,6 +519,19 @@ impl Cpu {
         self.registers.reg_f.h = (self.registers.reg_a as i8 & 0x0f) < (value as i8 & 0x0f);
         self.registers.reg_f.p = self.registers.get_bc() != 0;
         self.registers.reg_f.n = true;
+    }
+
+    fn neg(&mut self) {
+        let a = 0_u8.wrapping_sub(self.registers.reg_a);
+        self.registers.reg_f.z = a == 0;
+        self.registers.reg_f.s = (a as i8) < 0;
+        self.registers.reg_f.p = self.registers.reg_a == 0x80;
+        self.registers.reg_f.c = a != 0;
+        self.registers.reg_f.n = true;
+        self.registers.reg_f.h = (self.registers.reg_a ^ a) & HF == HF;
+        self.registers.reg_f.x = a & XF == XF;
+        self.registers.reg_f.y = a & YF == YF;
+        self.registers.reg_a = a;
     }
 
     /// Execute opcode at current program counter
@@ -874,9 +897,11 @@ impl Cpu {
             }
             0x37 => {
                 // scf
-                self.registers.reg_f.c = true;
+                self.registers.reg_f.y = self.registers.reg_a & YF == YF;
+                self.registers.reg_f.x = self.registers.reg_a & XF == XF;
                 self.registers.reg_f.h = false;
                 self.registers.reg_f.n = false;
+                self.registers.reg_f.c = true;
             }
             0x38 => {
                 // jr c,$+2
@@ -925,6 +950,8 @@ impl Cpu {
             }
             0x3f => {
                 // ccf
+                self.registers.reg_f.y = self.registers.reg_a & YF == YF;
+                self.registers.reg_f.x = self.registers.reg_a & XF == XF;
                 self.registers.reg_f.h = self.registers.reg_f.c;
                 self.registers.reg_f.n = false;
                 self.registers.reg_f.c = !self.registers.reg_f.c;
@@ -1521,6 +1548,7 @@ impl Cpu {
                 }
             }
             0xcb => {
+                let prev_opcode = 0xcb;
                 let opcode = self.bus.read_mem(self.registers.reg_pc);
                 self.registers.reg_pc += 1;
                 match opcode {
@@ -2715,6 +2743,7 @@ impl Cpu {
                 }
             }
             0xdd => {
+                let prev_opcode = 0xdd;
                 let opcode = self.bus.read_mem(self.registers.reg_pc);
                 self.registers.reg_pc += 1;
                 match opcode {
@@ -3025,6 +3054,16 @@ impl Cpu {
                         }
                         self.registers.reg_pc += 1;
                     }
+                    0x84 => {
+                        // add a,ixh (undocumented)
+                        let ixh: u8 = (self.registers.get_ix() >> 8) as u8;
+                        self.add(ixh);
+                    }
+                    0x85 => {
+                        // add a,ixl (undocumented)
+                        let ixl: u8 = (self.registers.get_ix() & 0xff) as u8;
+                        self.add(ixl);
+                    }
                     0x86 => {
                         // add a,(ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
@@ -3038,6 +3077,16 @@ impl Cpu {
                             self.add(value);
                         }
                         self.registers.reg_pc += 1;
+                    }
+                    0x8c => {
+                        // adc a,ixh (undocumented)
+                        let ixh: u8 = (self.registers.get_ix() >> 8) as u8;
+                        self.adc(ixh);
+                    }
+                    0x8d => {
+                        // adc a,ixl (undocumented)
+                        let ixl: u8 = (self.registers.get_ix() & 0xff) as u8;
+                        self.adc(ixl);
                     }
                     0x8e => {
                         // adc a,(ix+n)
@@ -3053,6 +3102,16 @@ impl Cpu {
                         }
                         self.registers.reg_pc += 1;
                     }
+                    0x94 => {
+                        // sub a,ixh (undocumented)
+                        let ixh: u8 = (self.registers.get_ix() >> 8) as u8;
+                        self.sub(ixh);
+                    }
+                    0x95 => {
+                        // sub a,ixl (undocumented)
+                        let ixl: u8 = (self.registers.get_ix() & 0xff) as u8;
+                        self.sub(ixl);
+                    }
                     0x96 => {
                         // sub (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
@@ -3066,6 +3125,16 @@ impl Cpu {
                             self.sub(value);
                         }
                         self.registers.reg_pc += 1;
+                    }
+                    0x9c => {
+                        // sbc a,ixh (undocumented)
+                        let ixh: u8 = (self.registers.get_ix() >> 8) as u8;
+                        self.sbc(ixh);
+                    }
+                    0x9d => {
+                        // sbc a,ixl (undocumented)
+                        let ixl: u8 = (self.registers.get_ix() & 0xff) as u8;
+                        self.sbc(ixl);
                     }
                     0x9e => {
                         // sbc a,(ix+n)
@@ -3081,6 +3150,14 @@ impl Cpu {
                         }
                         self.registers.reg_pc += 1;
                     }
+                    0xa4 => {
+                        // and ixh (undocumented)
+                        self.and(Type::Register(Regs::IXH));
+                    }
+                    0xa5 => {
+                        // and ixl (undocumented)
+                        self.and(Type::Register(Regs::IXL));
+                    }
                     0xa6 => {
                         // and (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
@@ -3091,6 +3168,14 @@ impl Cpu {
                             self.and(Type::Direct(ix + n as u16));
                         }
                         self.registers.reg_pc += 1;
+                    }
+                    0xac => {
+                        // xor ixh (undocumented)
+                        self.xor(Type::Register(Regs::IXH));
+                    }
+                    0xad => {
+                        // xor ixl (undocumented)
+                        self.xor(Type::Register(Regs::IXL));
                     }
                     0xae => {
                         // xor (ix+n)
@@ -3103,6 +3188,14 @@ impl Cpu {
                         }
                         self.registers.reg_pc += 1;
                     }
+                    0xb4 => {
+                        // or ixh (undocumented)
+                        self.or(Type::Register(Regs::IXH));
+                    }
+                    0xb5 => {
+                        // or ixl (undocumented)
+                        self.or(Type::Register(Regs::IXL));
+                    }
                     0xb6 => {
                         // or (ix+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
@@ -3113,6 +3206,14 @@ impl Cpu {
                             self.or(Type::Direct(ix + n as u16));
                         }
                         self.registers.reg_pc += 1;
+                    }
+                    0xbc => {
+                        // cp ixh (undocumented)
+                        self.cp(self.registers.reg_ixh);
+                    }
+                    0xbd => {
+                        // cp ixl (undocumented)
+                        self.cp(self.registers.reg_ixl);
                     }
                     0xbe => {
                         // cp (ix+n)
@@ -3130,6 +3231,7 @@ impl Cpu {
                     }
                     0xcb => {
                         // 0xddcb - IX Bit Instructions
+                        let prev_opcode = 0xddcb;
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let opcode = self.bus.read_mem(self.registers.reg_pc + 1);
                         self.registers.reg_pc += 2;
@@ -3186,6 +3288,35 @@ impl Cpu {
                                     self.sra(Type::Direct(ix - Cpu::abs(n) as u16));
                                 } else {
                                     self.sra(Type::Direct(ix + n as u16));
+                                }
+                            }
+                            0x36 => {
+                                // sll (ix+n)
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    self.sll(Type::Direct(ix - Cpu::abs(n) as u16));
+                                } else {
+                                    self.sll(Type::Direct(ix + n as u16));
+                                }
+                            }
+                            0x3e => {
+                                // srl (ix+n)
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    self.srl(Type::Direct(ix - Cpu::abs(n) as u16));
+                                } else {
+                                    self.srl(Type::Direct(ix + n as u16));
+                                }
+                            }
+                            0x3f => {
+                                // srl (ix+n),a
+                                let ix = self.registers.get_ix();
+                                if n & 0x80 == 0x80 {
+                                    let a = self.bus.read_mem(ix - Cpu::abs(n) as u16);
+                                    self.srl(Type::Register(Regs::A));
+                                } else {
+                                    let a = self.bus.read_mem(ix + n as u16);
+                                    self.srl(Type::Register(Regs::A));
                                 }
                             }
                             0x46 => {
@@ -3518,7 +3649,10 @@ impl Cpu {
                             }
                             _ => {
                                 // Illegal opcode
-                                panic!("Illegal opcode {:x}", self.registers.reg_pc);
+                                panic!(
+                                    "Illegal opcode {:x}:{:x} {:x}",
+                                    self.registers.reg_pc, prev_opcode, opcode
+                                );
                             }
                         }
                     }
@@ -3552,7 +3686,16 @@ impl Cpu {
                     }
                     _ => {
                         // Illegal opcode
-                        panic!("Illegal opcode {:x}", self.registers.reg_pc);
+                        if cfg!(debug_assertions) {
+                            // We only check illegal opcodes in debug mode
+                            extern crate std;
+                            std::println!(
+                                "Illegal opcode {:x}:{:x} {:x}",
+                                self.registers.reg_pc,
+                                prev_opcode,
+                                opcode
+                            );
+                        }
                     }
                 }
             }
@@ -3661,6 +3804,8 @@ impl Cpu {
                 }
             }
             0xed => {
+                // 0xdded prefix
+                let prev_opcode = 0xdded;
                 let opcode = self.bus.read_mem(self.registers.reg_pc);
                 self.registers.reg_pc += 1;
                 match opcode {
@@ -3686,15 +3831,7 @@ impl Cpu {
                     }
                     0x44 => {
                         // neg
-                        let na = !self.registers.reg_a;
-                        let a = na.wrapping_add(1);
-                        self.registers.reg_f.z = a == 0;
-                        self.registers.reg_f.s = (a as i8) < 0;
-                        self.registers.reg_f.p = self.registers.reg_a == 0x80;
-                        self.registers.reg_f.c = self.registers.reg_a != 0;
-                        self.registers.reg_f.n = true;
-                        self.registers.reg_f.h = 0 < (a & 0x0f);
-                        self.registers.reg_a = a;
+                        self.neg();
                     }
                     0x45 => {
                         // retn
@@ -3909,6 +4046,10 @@ impl Cpu {
                         self.registers.set_sp(n);
                         self.registers.reg_pc += 2;
                     }
+                    0x7c | 0x74 | 0x6c | 0x5c | 0x54 | 0x4c => {
+                        // neg (undocumented)
+                        self.neg();
+                    }
                     0xa0 => {
                         // ldi
                         let hl = self.registers.get_hl();
@@ -4024,7 +4165,10 @@ impl Cpu {
                     }
                     _ => {
                         // Illegal opcode
-                        panic!("Illegal opcode {:x}", self.registers.reg_pc);
+                        panic!(
+                            "Illegal opcode {:x}:{:x} {:x}",
+                            self.registers.reg_pc, prev_opcode, opcode
+                        );
                     }
                 }
             }
@@ -4133,6 +4277,7 @@ impl Cpu {
             }
             0xfd => {
                 // IY prefix
+                let prev_opcode = opcode;
                 let opcode = self.bus.read_mem(self.registers.reg_pc);
                 self.registers.reg_pc += 1;
                 match opcode {
@@ -4414,6 +4559,16 @@ impl Cpu {
                         }
                         self.registers.reg_pc += 1;
                     }
+                    0x84 => {
+                        // add a,iyh (undocumented)
+                        let iyh: u8 = (self.registers.get_iy() >> 8) as u8;
+                        self.add(iyh);
+                    }
+                    0x85 => {
+                        // add a,iyl (undocumented)
+                        let iyl: u8 = (self.registers.get_iy() & 0xff) as u8;
+                        self.add(iyl);
+                    }
                     0x86 => {
                         // add a,(iy+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
@@ -4426,6 +4581,16 @@ impl Cpu {
                             self.add(value);
                         }
                         self.registers.reg_pc += 1;
+                    }
+                    0x8c => {
+                        // adc iyh (undocumented)
+                        let iyh: u8 = (self.registers.get_iy() >> 8) as u8;
+                        self.adc(iyh);
+                    }
+                    0x8d => {
+                        // adc iyl (undocumented)
+                        let iyl: u8 = (self.registers.get_iy() & 0xff) as u8;
+                        self.adc(iyl);
                     }
                     0x8e => {
                         // adc a,(iy+n)
@@ -4440,6 +4605,16 @@ impl Cpu {
                         }
                         self.registers.reg_pc += 1;
                     }
+                    0x94 => {
+                        // sub a,iyh (undocumented)
+                        let iyh: u8 = (self.registers.get_iy() >> 8) as u8;
+                        self.sub(iyh);
+                    }
+                    0x95 => {
+                        // sub a,iyl (undocumented)
+                        let iyl: u8 = (self.registers.get_iy() & 0xff) as u8;
+                        self.sub(iyl);
+                    }
                     0x96 => {
                         // sub (iy+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
@@ -4452,6 +4627,16 @@ impl Cpu {
                             self.sub(value);
                         }
                         self.registers.reg_pc += 1;
+                    }
+                    0x9c => {
+                        // sbc a,iyh (undocumented)
+                        let iyh: u8 = (self.registers.get_iy() >> 8) as u8;
+                        self.sbc(iyh);
+                    }
+                    0x9d => {
+                        // sbc a,iyl (undocumented)
+                        let iyl: u8 = (self.registers.get_iy() & 0xff) as u8;
+                        self.sbc(iyl);
                     }
                     0x9e => {
                         // sbc a,(iy+n)
@@ -4466,6 +4651,14 @@ impl Cpu {
                         }
                         self.registers.reg_pc += 1;
                     }
+                    0xa4 => {
+                        // and iyh (undocumented)
+                        self.and(Type::Register(Regs::IYH));
+                    }
+                    0xa5 => {
+                        // and iyl (undocumented)
+                        self.and(Type::Register(Regs::IYL));
+                    }
                     0xa6 => {
                         // and (iy+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
@@ -4476,6 +4669,14 @@ impl Cpu {
                             self.and(Type::Direct(iy + n as u16));
                         }
                         self.registers.reg_pc += 1;
+                    }
+                    0xac => {
+                        // xor iyh (undocumented)
+                        self.xor(Type::Register(Regs::IYH));
+                    }
+                    0xad => {
+                        // xor iyl (undocumented)
+                        self.xor(Type::Register(Regs::IYL));
                     }
                     0xae => {
                         // xor (iy+n)
@@ -4488,6 +4689,14 @@ impl Cpu {
                         }
                         self.registers.reg_pc += 1;
                     }
+                    0xb4 => {
+                        // or iyh (undocumented)
+                        self.or(Type::Register(Regs::IYH));
+                    }
+                    0xb5 => {
+                        // or iyl (undocumented)
+                        self.or(Type::Register(Regs::IYL));
+                    }
                     0xb6 => {
                         // or (iy+n)
                         let n = self.bus.read_mem(self.registers.reg_pc);
@@ -4498,6 +4707,14 @@ impl Cpu {
                             self.or(Type::Direct(iy + n as u16));
                         }
                         self.registers.reg_pc += 1;
+                    }
+                    0xbc => {
+                        // cp iyh (undocumented)
+                        self.cp(self.registers.reg_iyh);
+                    }
+                    0xbd => {
+                        // cp iyl (undocumented)
+                        self.cp(self.registers.reg_iyl);
                     }
                     0xbe => {
                         // cp (iy+n)
@@ -4514,6 +4731,7 @@ impl Cpu {
                     }
                     0xcb => {
                         // rotate and shift
+                        let prev_opcode = 0xfdcb;
                         let n = self.bus.read_mem(self.registers.reg_pc);
                         let iy = self.registers.get_iy();
                         let value = self.bus.read_mem(iy + n as u16);
@@ -4566,6 +4784,34 @@ impl Cpu {
                                     self.sra(Type::Direct(iy - Cpu::abs(n) as u16));
                                 } else {
                                     self.sra(Type::Direct(iy + n as u16));
+                                }
+                            }
+                            0x36 => {
+                                // sll (iy+n) (undocumented)
+                                if n & 0x80 == 0x80 {
+                                    self.sll(Type::Direct(iy - Cpu::abs(n) as u16));
+                                } else {
+                                    self.sll(Type::Direct(iy + n as u16));
+                                }
+                            }
+                            0x3e => {
+                                // srl (iy+n) (undocumented)
+                                if n & 0x80 == 0x80 {
+                                    self.srl(Type::Direct(iy - Cpu::abs(n) as u16));
+                                } else {
+                                    self.srl(Type::Direct(iy + n as u16));
+                                }
+                            }
+                            0x3f => {
+                                // srl (iy+n),a (undocumented)
+                                if n & 0x80 == 0x80 {
+                                    let a = self.bus.read_mem(iy - Cpu::abs(n) as u16);
+                                    self.registers.reg_a = a;
+                                    self.srl(Type::Register(Regs::A));
+                                } else {
+                                    let a = self.bus.read_mem(iy + n as u16);
+                                    self.registers.reg_a = a;
+                                    self.srl(Type::Register(Regs::A));
                                 }
                             }
                             0x46 => {
@@ -4874,7 +5120,10 @@ impl Cpu {
                             }
                             _ => {
                                 // Illegal opcode
-                                panic!("Illegal opcode {:x}", self.registers.reg_pc);
+                                panic!(
+                                    "Illegal opcode {:x}:{:x} d {:x}",
+                                    self.registers.reg_pc, prev_opcode, opcode
+                                );
                             }
                         }
                     }
@@ -4908,7 +5157,10 @@ impl Cpu {
                     }
                     _ => {
                         // Illegal opcode
-                        panic!("Illegal opcode {:x}", self.registers.reg_pc);
+                        panic!(
+                            "Illegal opcode {:x}:{:x} {:x}",
+                            self.registers.reg_pc, prev_opcode, opcode
+                        );
                     }
                 }
             }
@@ -5085,38 +5337,34 @@ mod tests {
         assert_eq!(cpu.registers.reg_a, 0xaa);
     }
 
-    // #[test]
-    // fn testing_cpu_full_test() {
-    //     let mut bus = Bus::new(65535);
-    //     // let program = include_bytes!("../tests/z80ccf.bin").to_vec();
-    //     let program = include_bytes!("../tests/z80full.bin").to_vec();
+    #[test]
+    fn testing_cpu_full_test() {
+        let program = include_bytes!("../tests.old/z80ccf.bin").to_vec();
+        // let program = include_bytes!("../tests.old/z80full.bin").to_vec();
 
-    //     for (offset, &opcode) in program.iter().enumerate() {
-    //         bus.write_mem(0x8000 + offset as u16, opcode);
-    //     }
-    //     // Patch location 0x1601 where ZX Spectrum selects channel.
-    //     bus.write_mem(0x1601, 0xc9);
-    //     // Patch RST10 location with HALT
-    //     bus.write_mem(0x0010, 0x76);
+        let mut cpu = Cpu::new(None);
+        for (offset, &opcode) in program.iter().enumerate() {
+            cpu.bus.write_mem(0x8000 + offset as u16, opcode);
+        }
+        // Patch location 0x1601 where ZX Spectrum selects channel.
+        cpu.bus.write_mem(0x1601, 0xc9);
+        // Patch RST10 location with HALT
+        cpu.bus.write_mem(0x0010, 0x76);
 
-    //     let mut cpu = Cpu::new(bus);
-    //     cpu.registers.reg_pc = 0x8000;
-    //     cpu.registers.set_sp(0xffff);
+        cpu.registers.reg_pc = 0x8000;
+        cpu.registers.set_sp(0xffff);
 
-    //     while cpu.registers.reg_pc != 0x8094 {
-    //         // println!("PC: {:#04x}", cpu.registers.reg_pc);
-    //         if cpu.halt {
-    //             // dbg!("HALT");
-    //             zx_spectrum_print(&mut cpu);
-    //             cpu.pop_stack();
-    //             cpu.halt = false;
-    //         }
-    //         if cpu.registers.reg_pc == 0x832b {
-    //             print!(".");
-    //         }
-    //         cpu.step();
-    //     }
+        while cpu.registers.reg_pc != 0x8094 {
+            // println!("PC: {:#04x}", cpu.registers.reg_pc);
+            if cpu.halt {
+                // dbg!("HALT");
+                zx_spectrum_print(&mut cpu);
+                cpu.pop_stack();
+                cpu.halt = false;
+            }
+            cpu.step();
+        }
 
-    //     assert_eq!(cpu.registers.reg_pc, 0x8094);
-    // }
+        assert_eq!(cpu.registers.reg_pc, 0x8094);
+    }
 }

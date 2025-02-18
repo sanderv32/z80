@@ -17,14 +17,14 @@ const VF: u8 = 1 << 2;
 // parity flag (same as overflow)
 const PF: u8 = 1 << 2;
 
-// undocumented 'X' flag
-// const XF: u8 = 1 << 3;
+// undocumented 'Y' flag
+const YF: u8 = 1 << 3;
 
 // half carry flag
 const HF: u8 = 1 << 4;
 
-// undocumented 'Y' flag
-// const YF: u8 = 1 << 5;
+// undocumented 'X' flag
+const XF: u8 = 1 << 5;
 
 // zero flag
 const ZF: u8 = 1 << 6;
@@ -1422,10 +1422,10 @@ fn ccf_scf_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), HF | NF | CF); // SUB 0xCC
     c.exec_opcode();
     assert_eq!(0x34, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF); // CCF
+    assert_eq!(c.registers.reg_f.to_byte(), XF | HF); // CCF
     c.exec_opcode();
     assert_eq!(0x34, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), CF); // SCF
+    assert_eq!(c.registers.reg_f.to_byte(), XF | CF); // SCF
 }
 
 #[test]
@@ -4027,10 +4027,10 @@ fn neg_asm() {
     assert_eq!(c.registers.reg_a, 0x01); // LD A,0x01
     c.exec_opcode();
     assert_eq!(c.registers.reg_a, 0xFF);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // NEG
+    assert_eq!(c.registers.reg_f.to_byte(), YF | XF | SF | HF | NF | CF); // NEG
     c.exec_opcode();
     assert_eq!(c.registers.reg_a, 0x00);
-    assert_eq!(c.registers.reg_f.to_byte(), ZF | HF | CF); // ADD A,0x01
+    assert_eq!(c.registers.reg_f.to_byte(), YF | XF | ZF | HF | CF); // ADD A,0x01
     c.exec_opcode();
     assert_eq!(c.registers.reg_a, 0x00);
     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // NEG

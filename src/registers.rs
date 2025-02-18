@@ -43,8 +43,12 @@ pub enum Regs {
     HL,
     /// Index X register
     IX,
+    IXL,
+    IXH,
     /// Index Y register
     IY,
+    IYL,
+    IYH,
     /// Stack Pointer
     SP,
 }
