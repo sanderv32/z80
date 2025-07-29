@@ -17,6 +17,17 @@ pub trait Io {
     fn read_io(&self, address: u16) -> u8;
 }
 
+pub trait MemoryAccess {
+    /// Read u8 value from `address`
+    fn read_mem(&self, address: u16) -> u8;
+    /// Read u16 value from `address`
+    fn read_mem_u16(&self, address: u16) -> u16;
+    /// Write u8 `value` to `address`
+    fn write_mem(&mut self, address: u16, value: u8);
+    /// Write u16 `value` to `address`
+    fn write_mem_u16(&mut self, address: u16, value: u16);
+}
+
 struct Rom {
     pub start: u16,
     pub end: u16,
@@ -25,7 +36,7 @@ struct Rom {
 pub struct Bus {
     pub ram: Vec<u8>,
     rom: Option<Rom>,
-    io: Vec<u8>,
+    pub io: Vec<u8>,
 }
 
 impl Io for Bus {
@@ -61,9 +72,7 @@ impl Bus {
     /// use `set_rom`.
     pub fn set_rom(&mut self, mut start: u16, mut end: u16) {
         if start > end {
-            let tmp = start;
-            start = end;
-            end = tmp;
+            core::mem::swap(&mut start, &mut end);
         }
         self.rom = Some(Rom { start, end });
     }

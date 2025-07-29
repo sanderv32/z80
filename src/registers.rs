@@ -87,6 +87,10 @@ pub struct Registers {
     pub reg_sp: u16,
     /// Program Counter
     pub reg_pc: u16,
+    /// Memory Pointer
+    pub memptr: u16,
+    /// Q register
+    pub reg_q: u8,
 }
 
 impl Registers {
@@ -94,10 +98,10 @@ impl Registers {
     pub fn new() -> Self {
         Self {
             reg_f: Flags::new(),
-            reg_ixl: 0xff,
-            reg_ixh: 0xff,
-            reg_iyl: 0xff,
-            reg_iyh: 0xff,
+            // reg_ixl: 0xff,
+            // reg_ixh: 0xff,
+            // reg_iyl: 0xff,
+            // reg_iyh: 0xff,
             ..Default::default()
         }
     }

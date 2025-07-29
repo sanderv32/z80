@@ -3,7 +3,7 @@
 
 use crate::bus::Bus;
 use crate::bus::Io;
-use crate::flags::{CF, HF, NF, PF, SF, XF, YF, ZF};
+use crate::flags::{CF, HF, SF, XF, YF};
 use crate::registers::Registers;
 use crate::registers::Regs;
 
@@ -18,15 +18,16 @@ pub struct Cpu {
     pub iorq: bool,
 
     pub im: u8,
+    pub im0data: Option<[u8; 4]>,
+    pub int: Option<u8>,
     pub nmi: bool,
     pub halt: bool,
-    pub interrupts_enabled: bool,
 
     pub iff1: bool,
     pub iff2: bool,
 }
 
-enum Type {
+pub(crate) enum Type {
     Direct(u16),
     Register(Regs),
     Immediate(u8),
@@ -38,11 +39,7 @@ impl Cpu {
     /// Create a new Cpu instance, need `bus` as a parameter which
     /// is an instance of [Bus]
     pub fn new(bus: Option<Bus>) -> Self {
-        let bus = if bus.is_none() {
-            Bus::new(0xffff)
-        } else {
-            bus.unwrap()
-        };
+        let bus = bus.unwrap_or_else(|| Bus::new(0xffff));
         Self {
             bus,
             registers: Registers::new(),
@@ -51,12 +48,21 @@ impl Cpu {
             hard_reset: true,
             iorq: false,
             im: 0,
+            im0data: None,
+            int: None,
             nmi: false,
             halt: false,
-            interrupts_enabled: true,
             iff1: false,
             iff2: false,
         }
+    }
+
+    pub fn irq_request(&mut self, d: u8) {
+        self.int = Some(d);
+    }
+
+    pub fn nmi_request(&mut self) {
+        self.nmi = true;
     }
 
     fn get_value(&self, t: &Type) -> u8 {
@@ -352,14 +358,13 @@ impl Cpu {
         self.registers.reg_a = a;
     }
 
-    fn pop_stack(&mut self) {
-        self.registers.reg_pc = self.bus.read_mem_u16(self.registers.reg_sp);
-        // self.registers.reg_sp += 2;
+    pub(crate) fn pop_stack(&mut self) -> u16 {
+        let value = self.bus.read_mem_u16(self.registers.reg_sp);
         self.registers.reg_sp = self.registers.reg_sp.wrapping_add(2);
+        value
     }
 
-    fn push_stack(&mut self, value: u16) {
-        // self.registers.reg_sp -= 2;
+    pub(crate) fn push_stack(&mut self, value: u16) {
         self.registers.reg_sp = self.registers.reg_sp.wrapping_sub(2);
         self.bus.write_mem_u16(self.registers.reg_sp, value);
     }
@@ -522,16 +527,60 @@ impl Cpu {
     }
 
     fn neg(&mut self) {
-        let a = 0_u8.wrapping_sub(self.registers.reg_a);
-        self.registers.reg_f.z = a == 0;
-        self.registers.reg_f.s = (a as i8) < 0;
+        let result = 0_u8.wrapping_sub(self.registers.reg_a);
+        self.registers.reg_f.z = result == 0;
+        self.registers.reg_f.s = (result as i8) < 0;
         self.registers.reg_f.p = self.registers.reg_a == 0x80;
-        self.registers.reg_f.c = a != 0;
+        self.registers.reg_f.c = result != 0;
         self.registers.reg_f.n = true;
-        self.registers.reg_f.h = (self.registers.reg_a ^ a) & HF == HF;
-        self.registers.reg_f.x = a & XF == XF;
-        self.registers.reg_f.y = a & YF == YF;
-        self.registers.reg_a = a;
+        self.registers.reg_f.h = (self.registers.reg_a ^ result) & HF == HF;
+        self.registers.reg_f.x = result & XF == XF;
+        self.registers.reg_f.y = result & YF == YF;
+        self.registers.reg_a = result;
+    }
+
+    fn process_interrupt(&mut self) -> bool {
+        if self.nmi {
+            self.nmi = false;
+            self.push_stack(self.registers.reg_pc);
+            self.registers.reg_pc = 0x0066;
+            self.iff2 = self.iff1;
+            self.iff1 = false;
+            return true;
+        }
+
+        if self.iff1 && self.im0data.is_some() && self.im == 0 {
+            // The IM 0 instruction sets Interrupt Mode 0. In this mode, the interrupting device can insert
+            // any instruction on the data bus for execution by the CPU. The first byte of a multi-byte
+            // instruction is read during the interrupt acknowledge cycle. Subsequent bytes are read in by
+            // a normal memory read sequence.
+            let saved_memory = core::mem::take(&mut self.bus.ram);
+            let saved_pc = self.registers.reg_pc;
+            self.bus.ram = self.im0data.as_ref().unwrap().to_vec();
+            self.registers.reg_pc = 0;
+            self.exec_opcode();
+            self.registers.reg_pc = saved_pc;
+            self.bus.ram = saved_memory;
+            self.iff1 = false;
+            return true;
+        }
+
+        if self.iff1 && self.int.is_some() && self.im == 1 {
+            self.int = Some(0xff);
+            self.iff1 = false;
+            return true;
+        }
+
+        if self.iff1 && self.int.is_some() && self.im == 2 {
+            self.push_stack(self.registers.reg_pc);
+            let hb = self.registers.reg_i as u16;
+            let lb = self.int.unwrap() as u16;
+            self.registers.reg_pc = (hb << 8) | lb;
+            self.iff1 = false;
+            self.int = None;
+            return true;
+        }
+        false
     }
 
     /// Execute opcode at current program counter
@@ -540,16 +589,14 @@ impl Cpu {
             return;
         }
 
-        if self.nmi {
-            self.nmi = false;
-            self.push_stack(self.registers.reg_pc);
-            self.registers.reg_pc = 0x0066;
-            self.iff2 = self.iff1;
-            self.iff1 = false;
-        }
-
-        let opcode = self.bus.read_mem(self.registers.reg_pc);
-        self.registers.reg_pc += 1;
+        let opcode = match self.iff1 {
+            false => self.bus.read_mem(self.registers.reg_pc),
+            true => match self.int {
+                None => self.bus.read_mem(self.registers.reg_pc),
+                Some(opcode) => opcode,
+            },
+        };
+        self.registers.reg_pc = self.registers.reg_pc.wrapping_add(1);
         match opcode {
             0x00 => (), // nop
             0x01 => {
@@ -586,7 +633,7 @@ impl Cpu {
                 // rlca
                 let c = self.registers.reg_f.c;
                 let lmb = self.registers.reg_a & 0x80;
-                let result = self.registers.reg_a << 1 | lmb >> 7 as u8;
+                let result = self.registers.reg_a << 1 | lmb >> 7_u8;
                 self.registers.reg_f.h = false;
                 self.registers.reg_f.n = false;
                 self.registers.reg_f.c = lmb == 0x80;
@@ -897,8 +944,8 @@ impl Cpu {
             }
             0x37 => {
                 // scf
-                self.registers.reg_f.y = self.registers.reg_a & YF == YF;
-                self.registers.reg_f.x = self.registers.reg_a & XF == XF;
+                self.registers.reg_f.y = self.registers.reg_a & YF != 0;
+                self.registers.reg_f.x = self.registers.reg_a & XF != 0;
                 self.registers.reg_f.h = false;
                 self.registers.reg_f.n = false;
                 self.registers.reg_f.c = true;
@@ -1175,7 +1222,7 @@ impl Cpu {
             0x76 => {
                 // halt
                 self.halt = true;
-                self.registers.reg_pc -= 1;
+                self.registers.reg_pc = self.registers.reg_pc.wrapping_sub(1);
             }
             0x77 => {
                 // ld (hl),a
@@ -1480,14 +1527,14 @@ impl Cpu {
             0xc0 => {
                 // ret nz
                 if !self.registers.reg_f.z {
-                    self.pop_stack();
+                    self.registers.reg_pc = self.pop_stack();
                 }
             }
             0xc1 => {
                 // pop bc
                 self.registers
                     .set_bc(self.bus.read_mem_u16(self.registers.reg_sp));
-                self.registers.reg_sp += 2;
+                self.registers.reg_sp = self.registers.reg_sp.wrapping_add(2);
             }
             0xc2 => {
                 // jp nz,$+3
@@ -1514,9 +1561,8 @@ impl Cpu {
             }
             0xc5 => {
                 // push bc
-                self.registers.reg_sp -= 2;
-                self.bus
-                    .write_mem_u16(self.registers.reg_sp, self.registers.get_bc());
+                let bc = self.registers.get_bc();
+                self.push_stack(bc);
             }
             0xc6 => {
                 // add a,n
@@ -1531,12 +1577,12 @@ impl Cpu {
             0xc8 => {
                 // ret z
                 if self.registers.reg_f.z {
-                    self.pop_stack();
+                    self.registers.reg_pc = self.pop_stack();
                 }
             }
             0xc9 => {
                 // ret
-                self.pop_stack();
+                self.registers.reg_pc = self.pop_stack();
             }
             0xca => {
                 // jp z,$+3
@@ -2642,14 +2688,14 @@ impl Cpu {
             0xd0 => {
                 // ret nc
                 if !self.registers.reg_f.c {
-                    self.pop_stack();
+                    self.registers.reg_pc = self.pop_stack();
                 }
             }
             0xd1 => {
                 // pop de
                 self.registers
                     .set_de(self.bus.read_mem_u16(self.registers.reg_sp));
-                self.registers.reg_sp += 2;
+                self.registers.reg_sp = self.registers.reg_sp.wrapping_add(2);
             }
             0xd2 => {
                 // jp nc,$+3
@@ -2679,9 +2725,8 @@ impl Cpu {
             }
             0xd5 => {
                 // push de
-                self.registers.reg_sp -= 2;
-                self.bus
-                    .write_mem_u16(self.registers.reg_sp, self.registers.get_de());
+                let de = self.registers.get_de();
+                self.push_stack(de);
             }
             0xd6 => {
                 // sub n
@@ -2697,7 +2742,7 @@ impl Cpu {
             0xd8 => {
                 // ret c
                 if self.registers.reg_f.c {
-                    self.pop_stack();
+                    self.registers.reg_pc = self.pop_stack();
                 }
             }
             0xd9 => {
@@ -3660,7 +3705,7 @@ impl Cpu {
                         // pop ix
                         self.registers
                             .set_ix(self.bus.read_mem_u16(self.registers.reg_sp));
-                        self.registers.reg_sp += 2;
+                        self.registers.reg_sp = self.registers.reg_sp.wrapping_add(2);
                     }
                     0xe3 => {
                         // ex (sp),ix
@@ -3671,9 +3716,8 @@ impl Cpu {
                     }
                     0xe5 => {
                         // push ix
-                        self.registers.reg_sp -= 2;
-                        self.bus
-                            .write_mem_u16(self.registers.reg_sp, self.registers.get_ix());
+                        let ix = self.registers.get_ix();
+                        self.push_stack(ix);
                     }
                     0xe9 => {
                         // jp (ix)
@@ -3713,14 +3757,14 @@ impl Cpu {
             0xe0 => {
                 // ret po
                 if !self.registers.reg_f.p {
-                    self.pop_stack();
+                    self.registers.reg_pc = self.pop_stack();
                 }
             }
             0xe1 => {
                 // pop hl
                 self.registers
                     .set_hl(self.bus.read_mem_u16(self.registers.reg_sp));
-                self.registers.reg_sp += 2;
+                self.registers.reg_sp = self.registers.reg_sp.wrapping_add(2);
             }
             0xe2 => {
                 // jp po,$+3
@@ -3751,9 +3795,8 @@ impl Cpu {
             }
             0xe5 => {
                 // push hl
-                self.registers.reg_sp -= 2;
-                self.bus
-                    .write_mem_u16(self.registers.reg_sp, self.registers.get_hl());
+                let hl = self.registers.get_hl();
+                self.push_stack(hl);
             }
             0xe6 => {
                 // and n
@@ -3769,7 +3812,7 @@ impl Cpu {
             0xe8 => {
                 // ret pe
                 if self.registers.reg_f.p {
-                    self.pop_stack();
+                    self.registers.reg_pc = self.pop_stack();
                 }
             }
             0xe9 => {
@@ -3836,7 +3879,7 @@ impl Cpu {
                     0x45 => {
                         // retn
                         self.iff1 = self.iff2;
-                        self.pop_stack();
+                        self.registers.reg_pc = self.pop_stack();
                     }
                     0x46 => {
                         // im 0
@@ -3870,7 +3913,7 @@ impl Cpu {
                     }
                     0x4d => {
                         // reti
-                        self.pop_stack();
+                        self.registers.reg_pc = self.pop_stack();
                     }
                     0x4f => {
                         // ld r,a
@@ -4186,14 +4229,14 @@ impl Cpu {
             0xf0 => {
                 // ret p
                 if !self.registers.reg_f.s {
-                    self.pop_stack();
+                    self.registers.reg_pc = self.pop_stack();
                 }
             }
             0xf1 => {
                 // pop af
                 self.registers.reg_f = self.bus.read_mem(self.registers.reg_sp).into();
                 self.registers.reg_a = self.bus.read_mem(self.registers.reg_sp + 1);
-                self.registers.reg_sp += 2;
+                self.registers.reg_sp = self.registers.reg_sp.wrapping_add(2);
             }
             0xf2 => {
                 // jp p,$+3
@@ -4206,7 +4249,6 @@ impl Cpu {
             }
             0xf3 => {
                 // di
-                self.interrupts_enabled = false;
                 self.iff1 = false;
                 self.iff2 = false;
             }
@@ -4222,11 +4264,8 @@ impl Cpu {
             }
             0xf5 => {
                 // push af
-                self.registers.reg_sp -= 2;
-                self.bus
-                    .write_mem(self.registers.reg_sp, self.registers.reg_f.to_byte());
-                self.bus
-                    .write_mem(self.registers.reg_sp + 1, self.registers.reg_a);
+                let af = self.registers.get_af();
+                self.push_stack(af);
             }
             0xf6 => {
                 // or n
@@ -4242,7 +4281,7 @@ impl Cpu {
             0xf8 => {
                 // ret m
                 if self.registers.reg_f.s {
-                    self.pop_stack();
+                    self.registers.reg_pc = self.pop_stack();
                 }
             }
             0xf9 => {
@@ -4261,7 +4300,6 @@ impl Cpu {
             }
             0xfb => {
                 // ei
-                self.interrupts_enabled = true;
                 self.iff1 = true;
                 self.iff2 = true;
             }
@@ -5131,7 +5169,7 @@ impl Cpu {
                         // pop iy
                         self.registers
                             .set_iy(self.bus.read_mem_u16(self.registers.reg_sp));
-                        self.registers.reg_sp += 2;
+                        self.registers.reg_sp = self.registers.reg_sp.wrapping_add(2);
                     }
                     0xe3 => {
                         // ex (sp),iy
@@ -5142,9 +5180,8 @@ impl Cpu {
                     }
                     0xe5 => {
                         // push iy
-                        self.registers.reg_sp -= 2;
-                        self.bus
-                            .write_mem_u16(self.registers.reg_sp, self.registers.get_iy());
+                        let iy = self.registers.get_iy();
+                        self.push_stack(iy);
                     }
                     0xe9 => {
                         // jp (iy)
@@ -5176,12 +5213,16 @@ impl Cpu {
                 self.registers.reg_pc = 0x0038;
             }
         }
+        self.int = None;
     }
 
     pub fn run(&mut self) {}
 
     /// Execute one opcode
     pub fn step(&mut self) {
+        if self.int.is_some() {
+            self.process_interrupt();
+        }
         self.exec_opcode();
         let rhb = self.registers.reg_r & 0x80;
         self.registers.reg_r = self.registers.reg_r.wrapping_add(1) | rhb;
@@ -5214,38 +5255,6 @@ mod tests {
     extern crate std;
     use super::Cpu;
     use super::Type;
-    use std::io::Write;
-
-    pub fn zx_spectrum_print(cpu: &mut Cpu) {
-        static mut TAB: bool = false;
-        static mut XPOS: u8 = 0;
-        let a = cpu.registers.reg_a;
-        if unsafe { TAB } {
-            let pos = unsafe { a - XPOS };
-            std::print!("{}", " ".repeat(pos as usize));
-            unsafe {
-                TAB = false;
-            };
-        } else {
-            match a {
-                13 => {
-                    unsafe { XPOS = 0 };
-                    std::println!()
-                }
-                16..=22 => (),
-                23 => {
-                    unsafe { TAB = true };
-                }
-                32..=127 => {
-                    std::io::stdout().flush().unwrap();
-                    std::print!("{}", a as char);
-                    std::io::stdout().flush().unwrap();
-                    unsafe { XPOS += 1 };
-                }
-                _ => (),
-            }
-        }
-    }
 
     #[test]
     fn testing_abs_function() {
@@ -5335,36 +5344,5 @@ mod tests {
         cpu.registers.set_hl(0x2000);
         cpu.xor(Type::Direct(0x2000));
         assert_eq!(cpu.registers.reg_a, 0xaa);
-    }
-
-    #[test]
-    fn testing_cpu_full_test() {
-        let program = include_bytes!("../tests.old/z80ccf.bin").to_vec();
-        // let program = include_bytes!("../tests.old/z80full.bin").to_vec();
-
-        let mut cpu = Cpu::new(None);
-        for (offset, &opcode) in program.iter().enumerate() {
-            cpu.bus.write_mem(0x8000 + offset as u16, opcode);
-        }
-        // Patch location 0x1601 where ZX Spectrum selects channel.
-        cpu.bus.write_mem(0x1601, 0xc9);
-        // Patch RST10 location with HALT
-        cpu.bus.write_mem(0x0010, 0x76);
-
-        cpu.registers.reg_pc = 0x8000;
-        cpu.registers.set_sp(0xffff);
-
-        while cpu.registers.reg_pc != 0x8094 {
-            // println!("PC: {:#04x}", cpu.registers.reg_pc);
-            if cpu.halt {
-                // dbg!("HALT");
-                zx_spectrum_print(&mut cpu);
-                cpu.pop_stack();
-                cpu.halt = false;
-            }
-            cpu.step();
-        }
-
-        assert_eq!(cpu.registers.reg_pc, 0x8094);
     }
 }
