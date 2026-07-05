@@ -15,6 +15,9 @@ pub const NF: u8 = 0x02;
 /// Carry flag
 pub const CF: u8 = 0x01;
 
+/// Each bool is one bit of the real Z80 F register; they aren't related
+/// option toggles and must stay individually addressable.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Default, Debug)]
 pub struct Flags {
     /// Sign flag
@@ -36,6 +39,7 @@ pub struct Flags {
 }
 
 impl Flags {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             s: false,
@@ -49,6 +53,8 @@ impl Flags {
         }
     }
 
+    #[must_use]
+    #[allow(clippy::many_single_char_names)]
     pub fn to_byte(&self) -> u8 {
         let s = if self.s { 1 << 7 } else { 0 };
         let z = if self.z { 1 << 6 } else { 0 };
@@ -57,7 +63,7 @@ impl Flags {
         let y = if self.y { 1 << 3 } else { 0 };
         let p = if self.p { 1 << 2 } else { 0 };
         let n = if self.n { 1 << 1 } else { 0 };
-        let c = if self.c { 1 } else { 0 };
+        let c = u8::from(self.c);
         s | z | x | h | y | p | n | c
     }
 
@@ -98,7 +104,7 @@ mod tests {
         registers.reg_f = 0x80.into();
         assert_eq!(registers.reg_f.to_byte(), 0x80);
         let flags = &registers.reg_f;
-        assert_eq!(flags.s, true);
+        assert!(flags.s);
 
         registers.reg_f.c = true;
         assert_eq!(registers.reg_f.to_byte(), 0x81);

@@ -32,10 +32,11 @@ const ZF: u8 = 1 << 6;
 // sign flag
 const SF: u8 = 1 << 7;
 
-pub fn load_bin(file: &str, ram: &mut Vec<u8>, org: u16) -> io::Result<usize> {
-    if org as usize >= ram.len() {
-        panic!("Write operation after the end of address space !")
-    }
+pub fn load_bin(file: &str, ram: &mut [u8], org: u16) -> io::Result<usize> {
+    assert!(
+        (org as usize) < ram.len(),
+        "Write operation after the end of address space !"
+    );
     let mut f = std::fs::File::open(file)?;
     let mut buf = Vec::new();
     let s = f.read_to_end(&mut buf)?;
@@ -371,12 +372,12 @@ fn add_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), 0); // LD A,0x0F
     c.exec_opcode();
     assert_eq!(0x1E, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF); // ADD A,A
+    assert_eq!(c.registers.reg_f.to_byte(), HF | YF); // ADD A,A
     c.exec_opcode();
     assert_eq!(0xE0, c.registers.reg_b); // LD B,0xE0
     c.exec_opcode();
     assert_eq!(0xFE, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF); // ADD A,B
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF | YF); // ADD A,B
     c.exec_opcode();
     assert_eq!(0x81, c.registers.reg_a); // LD A,0x81
     c.exec_opcode();
@@ -403,10 +404,10 @@ fn add_r_asm() {
     assert_eq!(0x33, c.registers.reg_l); // LD L,0x33
     c.exec_opcode();
     assert_eq!(0xF3, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF); // ADD A,L
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF); // ADD A,L
     c.exec_opcode();
     assert_eq!(0x37, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), CF); // ADD A,0x44
+    assert_eq!(c.registers.reg_f.to_byte(), CF | XF); // ADD A,0x44
 }
 
 #[test]
@@ -429,93 +430,93 @@ fn add_i_hl_ix_iy_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), 0); // ADD A,(HL)
     c.exec_opcode();
     assert_eq!(0xA2, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | VF); // ADD A,(IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | VF | XF); // ADD A,(IX+1)
     c.exec_opcode();
     assert_eq!(0x23, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), VF | CF); // ADD A,(IY-1)
+    assert_eq!(c.registers.reg_f.to_byte(), VF | CF | XF); // ADD A,(IY-1)
 }
 
-// #[test]
-// fn add_ixh_ixl_asm() {
-//     let mut c = Cpu::new(None);
-//     load_bin("tests/add_a_ixh_ixl.bin", &mut c.bus.ram, 0).unwrap();
-//     c.exec_opcode();
-//     assert_eq!(0x0F, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), 0); // LD A,0x0F
-//     c.exec_opcode();
-//     assert_eq!(0x1E, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), HF); // ADD A,A
-//     c.exec_opcode();
-//     assert_eq!(0xE080, c.registers.get_ix(),); // LD  IX,0xE080
-//     c.exec_opcode();
-//     assert_eq!(0xFE, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), SF); // ADD A,IXH
-//     c.exec_opcode();
-//     assert_eq!(0x81, c.registers.reg_a); // LD  A,0x81
-//     c.exec_opcode();
-//     assert_eq!(0x01, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), VF | CF); // ADD A,IXL
-// }
+#[test]
+fn add_ixh_ixl_asm() {
+    let mut c = Cpu::new(None);
+    load_bin("tests/add_a_ixh_ixl.bin", &mut c.bus.ram, 0).unwrap();
+    c.exec_opcode();
+    assert_eq!(0x0F, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), 0); // LD A,0x0F
+    c.exec_opcode();
+    assert_eq!(0x1E, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), HF | YF); // ADD A,A
+    c.exec_opcode();
+    assert_eq!(0xE080, c.registers.get_ix(),); // LD  IX,0xE080
+    c.exec_opcode();
+    assert_eq!(0xFE, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF | YF); // ADD A,IXH
+    c.exec_opcode();
+    assert_eq!(0x81, c.registers.reg_a); // LD  A,0x81
+    c.exec_opcode();
+    assert_eq!(0x01, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), VF | CF); // ADD A,IXL
+}
 
-// #[test]
-// fn add_a_iyh_iyl_asm() {
-//     let mut c = Cpu::new(None);
-//     load_bin("tests/add_a_iyh_iyl.bin", &mut c.bus.ram, 0).unwrap();
-//     c.exec_opcode();
-//     assert_eq!(0x0F, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), 0); // LD A,0x0F
-//     c.exec_opcode();
-//     assert_eq!(0x1E, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), HF); // ADD A,A
-//     c.exec_opcode();
-//     assert_eq!(0xE080, c.registers.get_iy()); // LD  IY,0xE080
-//     c.exec_opcode();
-//     assert_eq!(0xFE, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), SF); // ADD A,IYH
-//     c.exec_opcode();
-//     assert_eq!(0x81, c.registers.reg_a); // LD  A,0x81
-//     c.exec_opcode();
-//     assert_eq!(0x01, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), VF | CF); // ADD A,IYL
-// }
+#[test]
+fn add_a_iyh_iyl_asm() {
+    let mut c = Cpu::new(None);
+    load_bin("tests/add_a_iyh_iyl.bin", &mut c.bus.ram, 0).unwrap();
+    c.exec_opcode();
+    assert_eq!(0x0F, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), 0); // LD A,0x0F
+    c.exec_opcode();
+    assert_eq!(0x1E, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), HF | YF); // ADD A,A
+    c.exec_opcode();
+    assert_eq!(0xE080, c.registers.get_iy()); // LD  IY,0xE080
+    c.exec_opcode();
+    assert_eq!(0xFE, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF | YF); // ADD A,IYH
+    c.exec_opcode();
+    assert_eq!(0x81, c.registers.reg_a); // LD  A,0x81
+    c.exec_opcode();
+    assert_eq!(0x01, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), VF | CF); // ADD A,IYL
+}
 
-// #[test]
-// fn adc_a_ixh_ixl_asm() {
-//     let mut c = Cpu::new(None);
-//     load_bin("tests/adc_a_ixh_ixl.bin", &mut c.bus.ram, 0).unwrap();
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.registers.reg_a); // LD A,0x00
-//     c.exec_opcode();
-//     assert_eq!(0x4161, c.registers.get_ix(),); // LD IX,0x4161
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), ZF); // ADC A,A
-//     c.exec_opcode();
-//     assert_eq!(0x41, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), 0); // ADC A,IXH
-//     c.exec_opcode();
-//     assert_eq!(0xA2, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), SF | VF); // ADC A,IXL
-// }
+#[test]
+fn adc_a_ixh_ixl_asm() {
+    let mut c = Cpu::new(None);
+    load_bin("tests/adc_a_ixh_ixl.bin", &mut c.bus.ram, 0).unwrap();
+    c.exec_opcode();
+    assert_eq!(0x00, c.registers.reg_a); // LD A,0x00
+    c.exec_opcode();
+    assert_eq!(0x4161, c.registers.get_ix(),); // LD IX,0x4161
+    c.exec_opcode();
+    assert_eq!(0x00, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), ZF); // ADC A,A
+    c.exec_opcode();
+    assert_eq!(0x41, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), 0); // ADC A,IXH
+    c.exec_opcode();
+    assert_eq!(0xA2, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | VF | XF); // ADC A,IXL
+}
 
-// #[test]
-// fn adc_a_iyh_iyl_asm() {
-//     let mut c = Cpu::new(None);
-//     load_bin("tests/adc_a_iyh_iyl.bin", &mut c.bus.ram, 0).unwrap();
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.registers.reg_a); // LD A,0x00
-//     c.exec_opcode();
-//     assert_eq!(0x4161, c.registers.get_iy()); // LD IY,0x4161
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), ZF); // ADC A,A
-//     c.exec_opcode();
-//     assert_eq!(0x41, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), 0); // ADC A,IYH
-//     c.exec_opcode();
-//     assert_eq!(0xA2, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), SF | VF); // ADC A,IYL
-// }
+#[test]
+fn adc_a_iyh_iyl_asm() {
+    let mut c = Cpu::new(None);
+    load_bin("tests/adc_a_iyh_iyl.bin", &mut c.bus.ram, 0).unwrap();
+    c.exec_opcode();
+    assert_eq!(0x00, c.registers.reg_a); // LD A,0x00
+    c.exec_opcode();
+    assert_eq!(0x4161, c.registers.get_iy()); // LD IY,0x4161
+    c.exec_opcode();
+    assert_eq!(0x00, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), ZF); // ADC A,A
+    c.exec_opcode();
+    assert_eq!(0x41, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), 0); // ADC A,IYH
+    c.exec_opcode();
+    assert_eq!(0xA2, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | VF | XF); // ADC A,IYL
+}
 
 #[test]
 fn adc_r_asm() {
@@ -543,13 +544,13 @@ fn adc_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), 0); // ADC A,B
     c.exec_opcode();
     assert_eq!(0xA2, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | VF); // ADC A,C
+    assert_eq!(c.registers.reg_f.to_byte(), SF | VF | XF); // ADC A,C
     c.exec_opcode();
     assert_eq!(0x23, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), VF | CF); // ADC A,D
+    assert_eq!(c.registers.reg_f.to_byte(), VF | CF | XF); // ADC A,D
     c.exec_opcode();
     assert_eq!(0x65, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), 0); // ADC A,E
+    assert_eq!(c.registers.reg_f.to_byte(), XF); // ADC A,E
     c.exec_opcode();
     assert_eq!(0xC6, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), SF | VF); // ADC A,H
@@ -558,7 +559,7 @@ fn adc_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), VF | CF); // ADC A,L
     c.exec_opcode();
     assert_eq!(0x49, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), 0); // ADC A,0x01
+    assert_eq!(c.registers.reg_f.to_byte(), YF); // ADC A,0x01
     c.exec_opcode();
     assert_eq!(0x0F, c.registers.reg_a); // LD A,0x0F
     c.exec_opcode();
@@ -589,13 +590,13 @@ fn adc_i_hl_ix_iy_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), 0); // ADD A,(HL)
     c.exec_opcode();
     assert_eq!(0xA2, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | VF); // ADC A,(IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | VF | XF); // ADC A,(IX+1)
     c.exec_opcode();
     assert_eq!(0x23, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), VF | CF); // ADC A,(IY-1)
+    assert_eq!(c.registers.reg_f.to_byte(), VF | CF | XF); // ADC A,(IY-1)
     c.exec_opcode();
     assert_eq!(0x26, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), 0); // ADC A,(IX+3)
+    assert_eq!(c.registers.reg_f.to_byte(), XF); // ADC A,(IX+3)
 }
 
 #[test]
@@ -621,67 +622,67 @@ fn sub_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SUB A,B
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SUB A,B
     c.exec_opcode();
     assert_eq!(0x07, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), NF); // SUB A,C
     c.exec_opcode();
     assert_eq!(0xF8, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SUB A,D
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SUB A,D
     c.exec_opcode();
     assert_eq!(0x7F, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF | VF | NF); // SUB A,E
+    assert_eq!(c.registers.reg_f.to_byte(), HF | VF | NF | XF | YF); // SUB A,E
     c.exec_opcode();
     assert_eq!(0xBF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | VF | NF | CF); // SUB A,H
+    assert_eq!(c.registers.reg_f.to_byte(), SF | VF | NF | CF | XF | YF); // SUB A,H
     c.exec_opcode();
     assert_eq!(0x00, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,L
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SUB A,0x01
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SUB A,0x01
     c.exec_opcode();
     assert_eq!(0x01, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), NF); // SUB A,0xFE
 }
 
-// #[test]
-// fn sub_ixh_ixl_asm() {
-//     let mut c = Cpu::new(None);
-//     load_bin("tests/sub_ixh_ixl.bin", &mut c.bus.ram, 0).unwrap();
-//     c.exec_opcode();
-//     assert_eq!(0x04, c.registers.reg_a); // LD A,0x04
-//     c.exec_opcode();
-//     assert_eq!(0x01F8, c.registers.get_ix(),); // LD B,0x01
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
-//     c.exec_opcode();
-//     assert_eq!(0xFF, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SUB A,IXH
-//     c.exec_opcode();
-//     assert_eq!(0x07, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), NF); // SUB A,IXL
-// }
+#[test]
+fn sub_ixh_ixl_asm() {
+    let mut c = Cpu::new(None);
+    load_bin("tests/sub_ixh_ixl.bin", &mut c.bus.ram, 0).unwrap();
+    c.exec_opcode();
+    assert_eq!(0x04, c.registers.reg_a); // LD A,0x04
+    c.exec_opcode();
+    assert_eq!(0x01F8, c.registers.get_ix(),); // LD B,0x01
+    c.exec_opcode();
+    assert_eq!(0x00, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
+    c.exec_opcode();
+    assert_eq!(0xFF, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SUB A,IXH
+    c.exec_opcode();
+    assert_eq!(0x07, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), NF); // SUB A,IXL
+}
 
-// #[test]
-// fn sub_iyh_iyl_asm() {
-//     let mut c = Cpu::new(None);
-//     load_bin("tests/sub_iyh_iyl.bin", &mut c.bus.ram, 0).unwrap();
-//     c.exec_opcode();
-//     assert_eq!(0x04, c.registers.reg_a); // LD A,0x04
-//     c.exec_opcode();
-//     assert_eq!(0x01F8, c.registers.get_iy()); // LD B,0x01
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
-//     c.exec_opcode();
-//     assert_eq!(0xFF, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SUB A,IXH
-//     c.exec_opcode();
-//     assert_eq!(0x07, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), NF); // SUB A,IXL
-// }
+#[test]
+fn sub_iyh_iyl_asm() {
+    let mut c = Cpu::new(None);
+    load_bin("tests/sub_iyh_iyl.bin", &mut c.bus.ram, 0).unwrap();
+    c.exec_opcode();
+    assert_eq!(0x04, c.registers.reg_a); // LD A,0x04
+    c.exec_opcode();
+    assert_eq!(0x01F8, c.registers.get_iy()); // LD B,0x01
+    c.exec_opcode();
+    assert_eq!(0x00, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
+    c.exec_opcode();
+    assert_eq!(0xFF, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SUB A,IXH
+    c.exec_opcode();
+    assert_eq!(0x07, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), NF); // SUB A,IXL
+}
 
 #[test]
 fn cp_r_asm() {
@@ -706,7 +707,7 @@ fn cp_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // CP A
     c.exec_opcode();
     assert_eq!(0x04, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // CP B
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // CP B
     c.exec_opcode();
     assert_eq!(0x04, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), NF); // CP C
@@ -715,7 +716,7 @@ fn cp_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), HF | NF | CF); // CP D
     c.exec_opcode();
     assert_eq!(0x04, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF | NF | CF); // CP E
+    assert_eq!(c.registers.reg_f.to_byte(), HF | NF | CF | YF); // CP E
     c.exec_opcode();
     assert_eq!(0x04, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), SF | VF | NF | CF); // CP H
@@ -744,13 +745,13 @@ fn sub_i_hl_ix_iy_asm() {
     assert_eq!(0x00, c.registers.reg_a); // LD A,0x00
     c.exec_opcode();
     assert_eq!(0xBF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SUB A,(HL)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SUB A,(HL)
     c.exec_opcode();
     assert_eq!(0x5E, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), VF | NF); // SUB A,(IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), VF | NF | YF); // SUB A,(IX+1)
     c.exec_opcode();
     assert_eq!(0xFD, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | NF | CF); // SUB A,(IY-2)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | NF | CF | XF | YF); // SUB A,(IY-2)
 }
 
 #[test]
@@ -773,10 +774,10 @@ fn cp_i_hl_ix_iy_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // CP (HL)
     c.exec_opcode();
     assert_eq!(0x41, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | NF | CF); // CP (IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | NF | CF | XF); // CP (IX+1)
     c.exec_opcode();
     assert_eq!(0x41, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF | NF); // CP (IY-1)
+    assert_eq!(c.registers.reg_f.to_byte(), HF | NF | YF); // CP (IY-1)
 }
 
 #[test]
@@ -798,57 +799,57 @@ fn sbc_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SBC A,B (0x00 - 0x01)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SBC A,B (0x00 - 0x01)
     c.exec_opcode();
     assert_eq!(0x06, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), NF); // SBC A,C (0xFF - 0xF8 - carry)
     c.exec_opcode();
     assert_eq!(0xF7, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SBC A,D (0x06 - 0x0F)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF); // SBC A,D (0x06 - 0x0F)
     c.exec_opcode();
     assert_eq!(0x7D, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF | VF | NF); // SBC A,E (0xF7 - 0x79)
+    assert_eq!(c.registers.reg_f.to_byte(), HF | VF | NF | XF | YF); // SBC A,E (0xF7 - 0x79)
     c.exec_opcode();
     assert_eq!(0xBD, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | VF | NF | CF); // SBC A,H (0x7D - 0xC0)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | VF | NF | CF | XF | YF); // SBC A,H (0x7D - 0xC0)
     c.exec_opcode();
     assert_eq!(0xFD, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SBC A,L (0xBD - 0xBF - carry ) should set HF
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SBC A,L (0xBD - 0xBF - carry ) should set HF
     c.exec_opcode();
     assert_eq!(0xFB, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | NF); // SBC A,0x01
+    assert_eq!(c.registers.reg_f.to_byte(), SF | NF | XF | YF); // SBC A,0x01
     c.exec_opcode();
     assert_eq!(0xFD, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SBC A,0xFE
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SBC A,0xFE
 }
 
-// #[test]
-// fn sbc_ixyh_ixyl_asm() {
-//     let mut c = Cpu::new(None);
-//     load_bin("tests/sbc_ixyh_ixyl.bin", &mut c.bus.ram, 0).unwrap();
-//     c.exec_opcode();
-//     c.exec_opcode();
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
-//     c.exec_opcode();
-//     assert_eq!(0xFF, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SBC A,IXH
-//     c.exec_opcode();
-//     assert_eq!(0x06, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), NF); // SBC A,IXL
-//     c.exec_opcode();
-//     c.exec_opcode();
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
-//     c.exec_opcode();
-//     assert_eq!(0xFF, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // SBC A,IYH
-//     c.exec_opcode();
-//     assert_eq!(0x06, c.registers.reg_a);
-//     assert_eq!(c.registers.reg_f.to_byte(), NF); // SBC A,IYL
-// }
+#[test]
+fn sbc_ixyh_ixyl_asm() {
+    let mut c = Cpu::new(None);
+    load_bin("tests/sbc_ixyh_ixyl.bin", &mut c.bus.ram, 0).unwrap();
+    c.exec_opcode();
+    c.exec_opcode();
+    c.exec_opcode();
+    assert_eq!(0x00, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
+    c.exec_opcode();
+    assert_eq!(0xFF, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SBC A,IXH
+    c.exec_opcode();
+    assert_eq!(0x06, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), NF); // SBC A,IXL
+    c.exec_opcode();
+    c.exec_opcode();
+    c.exec_opcode();
+    assert_eq!(0x00, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A,A
+    c.exec_opcode();
+    assert_eq!(0xFF, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // SBC A,IYH
+    c.exec_opcode();
+    assert_eq!(0x06, c.registers.reg_a);
+    assert_eq!(c.registers.reg_f.to_byte(), NF); // SBC A,IYL
+}
 
 #[test]
 fn sbc_i_hl_ix_iy_asm() {
@@ -867,13 +868,13 @@ fn sbc_i_hl_ix_iy_asm() {
     assert_eq!(0x00, c.registers.reg_a);
     c.exec_opcode();
     assert_eq!(0xBF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x5D, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), VF | NF);
+    assert_eq!(c.registers.reg_f.to_byte(), VF | NF | YF);
     c.exec_opcode();
     assert_eq!(0xFC, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | NF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | NF | CF | XF | YF);
 }
 
 #[test]
@@ -897,19 +898,19 @@ fn or_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), 0); // OR D
     c.exec_opcode();
     assert_eq!(0x0F, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), PF); // OR E
+    assert_eq!(c.registers.reg_f.to_byte(), PF | YF); // OR E
     c.exec_opcode();
     assert_eq!(0x1F, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), 0); // OR H
+    assert_eq!(c.registers.reg_f.to_byte(), YF); // OR H
     c.exec_opcode();
     assert_eq!(0x3F, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), PF); // OR L
+    assert_eq!(c.registers.reg_f.to_byte(), PF | XF | YF); // OR L
     c.exec_opcode();
     assert_eq!(0x7F, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), 0); // OR 0x40
+    assert_eq!(c.registers.reg_f.to_byte(), XF | YF); // OR 0x40
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // OR 0x80
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF); // OR 0x80
 }
 
 #[test]
@@ -933,19 +934,19 @@ fn xor_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), PF); // XOR D
     c.exec_opcode();
     assert_eq!(0x0A, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), PF); // XOR E
+    assert_eq!(c.registers.reg_f.to_byte(), PF | YF); // XOR E
     c.exec_opcode();
     assert_eq!(0x15, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), 0); // XOR H
     c.exec_opcode();
     assert_eq!(0x2A, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), 0); // XOR L
+    assert_eq!(c.registers.reg_f.to_byte(), XF | YF); // XOR L
     c.exec_opcode();
     assert_eq!(0x55, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), PF); // XOR 0x7F
     c.exec_opcode();
     assert_eq!(0xAA, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // XOR 0xFF
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF); // XOR 0xFF
 }
 
 #[test]
@@ -963,13 +964,13 @@ fn or_xor_i_hl_ix_iy_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), PF); // OR (HL)
     c.exec_opcode();
     assert_eq!(0x63, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), PF); // OR (IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), PF | XF); // OR (IX+1)
     c.exec_opcode();
     assert_eq!(0xE7, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // OR (IY-1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF); // OR (IY-1)
     c.exec_opcode();
     assert_eq!(0xA6, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // XOR (HL)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF); // XOR (HL)
     c.exec_opcode();
     assert_eq!(0xC4, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), SF); // XOR (IX+1)
@@ -990,46 +991,46 @@ fn and_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), HF); // AND B
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // OR 0xFF
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF); // OR 0xFF
     c.exec_opcode();
     assert_eq!(0x03, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), HF | PF); // AND C
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // OR 0xFF
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF); // OR 0xFF
     c.exec_opcode();
     assert_eq!(0x04, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), HF); // AND D
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // OR 0xFF
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF); // OR 0xFF
     c.exec_opcode();
     assert_eq!(0x08, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF); // AND E
+    assert_eq!(c.registers.reg_f.to_byte(), HF | YF); // AND E
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // OR 0xFF
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF); // OR 0xFF
     c.exec_opcode();
     assert_eq!(0x10, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), HF); // AND H
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // OR 0xFF
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF); // OR 0xFF
     c.exec_opcode();
     assert_eq!(0x20, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF); // AND L
+    assert_eq!(c.registers.reg_f.to_byte(), HF | XF); // AND L
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // OR 0xFF
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF); // OR 0xFF
     c.exec_opcode();
     assert_eq!(0x40, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), HF); // AND 0x40
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF); // OR 0xFF
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF); // OR 0xFF
     c.exec_opcode();
     assert_eq!(0xAA, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | PF); // AND 0xAA
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | PF | XF | YF); // AND 0xAA
 }
 
 #[test]
@@ -1044,13 +1045,13 @@ fn and_i_hl_ix_iy_asm() {
     }
     c.exec_opcode();
     assert_eq!(0xFE, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF); // AND (HL)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | XF | YF); // AND (HL)
     c.exec_opcode();
     assert_eq!(0xAA, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | PF); // AND (IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | PF | XF | YF); // AND (IX+1)
     c.exec_opcode();
     assert_eq!(0x88, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | PF); // AND (IY-1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | PF | YF); // AND (IY-1)
 }
 
 #[test]
@@ -1071,40 +1072,40 @@ fn inc_dec_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), ZF | HF); // INC B
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_b);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF); // DEC B
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | XF | YF); // DEC B
     c.exec_opcode();
     assert_eq!(0x10, c.registers.reg_c);
     assert_eq!(c.registers.reg_f.to_byte(), HF); // INC C
     c.exec_opcode();
     assert_eq!(0x0F, c.registers.reg_c);
-    assert_eq!(c.registers.reg_f.to_byte(), HF | NF); // DEC C
+    assert_eq!(c.registers.reg_f.to_byte(), HF | NF | YF); // DEC C
     c.exec_opcode();
     assert_eq!(0x0F, c.registers.reg_d);
-    assert_eq!(c.registers.reg_f.to_byte(), 0); // INC D
+    assert_eq!(c.registers.reg_f.to_byte(), YF); // INC D
     c.exec_opcode();
     assert_eq!(0x0E, c.registers.reg_d);
-    assert_eq!(c.registers.reg_f.to_byte(), NF); // DEC D
+    assert_eq!(c.registers.reg_f.to_byte(), NF | YF); // DEC D
     c.exec_opcode();
     assert_eq!(0x00, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF); // CP 0x01   set carry flag (should be preserved)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF); // CP 0x01   set carry flag (should be preserved)
     c.exec_opcode();
     assert_eq!(0x80, c.registers.reg_e);
     assert_eq!(c.registers.reg_f.to_byte(), SF | HF | VF | CF); // INC E
     c.exec_opcode();
     assert_eq!(0x7F, c.registers.reg_e);
-    assert_eq!(c.registers.reg_f.to_byte(), HF | VF | NF | CF); // DEC E
+    assert_eq!(c.registers.reg_f.to_byte(), HF | VF | NF | CF | XF | YF); // DEC E
     c.exec_opcode();
     assert_eq!(0x3F, c.registers.reg_h);
-    assert_eq!(c.registers.reg_f.to_byte(), CF); // INC H
+    assert_eq!(c.registers.reg_f.to_byte(), CF | XF | YF); // INC H
     c.exec_opcode();
     assert_eq!(0x3E, c.registers.reg_h);
-    assert_eq!(c.registers.reg_f.to_byte(), NF | CF); // DEC H
+    assert_eq!(c.registers.reg_f.to_byte(), NF | CF | XF | YF); // DEC H
     c.exec_opcode();
     assert_eq!(0x24, c.registers.reg_l);
-    assert_eq!(c.registers.reg_f.to_byte(), CF); // INC L
+    assert_eq!(c.registers.reg_f.to_byte(), CF | XF); // INC L
     c.exec_opcode();
     assert_eq!(0x23, c.registers.reg_l);
-    assert_eq!(c.registers.reg_f.to_byte(), NF | CF); // DEC L
+    assert_eq!(c.registers.reg_f.to_byte(), NF | CF | XF); // DEC L
 }
 
 #[test]
@@ -1119,7 +1120,7 @@ fn inc_dec_i_hl_ix_iy_asm() {
     }
     c.exec_opcode();
     assert_eq!(0xFF, c.bus.read_mem(0x1000));
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF); // DEC (HL)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | XF | YF); // DEC (HL)
     c.exec_opcode();
     assert_eq!(0x00, c.bus.read_mem(0x1000));
     assert_eq!(c.registers.reg_f.to_byte(), ZF | HF); // INC (HL)
@@ -1128,13 +1129,13 @@ fn inc_dec_i_hl_ix_iy_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), HF); // INC (IX+1)
     c.exec_opcode();
     assert_eq!(0x3F, c.bus.read_mem(0x1001));
-    assert_eq!(c.registers.reg_f.to_byte(), HF | NF); // DEC (IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), HF | NF | XF | YF); // DEC (IX+1)
     c.exec_opcode();
     assert_eq!(0x80, c.bus.read_mem(0x1002));
     assert_eq!(c.registers.reg_f.to_byte(), SF | HF | VF); // INC (IY-1)
     c.exec_opcode();
     assert_eq!(0x7F, c.bus.read_mem(0x1002));
-    assert_eq!(c.registers.reg_f.to_byte(), HF | PF | NF); // DEC (IY-1)
+    assert_eq!(c.registers.reg_f.to_byte(), HF | PF | NF | XF | YF); // DEC (IY-1)
 }
 
 #[test]
@@ -1350,13 +1351,13 @@ fn daa_asm() {
     assert_eq!(0x27, c.registers.reg_b); // LD B,0x27
     c.exec_opcode();
     assert_eq!(0x3C, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), 0); // ADD A,B
+    assert_eq!(c.registers.reg_f.to_byte(), XF | YF); // ADD A,B
     c.exec_opcode();
     assert_eq!(0x42, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), HF | PF); // DAA
     c.exec_opcode();
     assert_eq!(0x1B, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF | NF); // SUB B
+    assert_eq!(c.registers.reg_f.to_byte(), HF | NF | YF); // SUB B
     c.exec_opcode();
     assert_eq!(0x15, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), NF); // DAA
@@ -1368,13 +1369,13 @@ fn daa_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), NF); // LD B,0x15
     c.exec_opcode();
     assert_eq!(0xA5, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF); // ADD A,B
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF); // ADD A,B
     c.exec_opcode();
     assert_eq!(0x05, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), PF | CF); // DAA
     c.exec_opcode();
     assert_eq!(0xF0, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | NF | CF); // SUB B
+    assert_eq!(c.registers.reg_f.to_byte(), SF | NF | CF | XF); // SUB B
     c.exec_opcode();
     assert_eq!(0x90, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), SF | PF | NF | CF); // DAA
@@ -1389,19 +1390,19 @@ fn cpl_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // SUB A
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), ZF | HF | NF); // CPL
+    assert_eq!(c.registers.reg_f.to_byte(), ZF | HF | NF | XF | YF); // CPL
     c.exec_opcode();
     assert_eq!(0x00, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), ZF | HF | NF); // CPL
     c.exec_opcode();
     assert_eq!(0xAA, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF); // ADD A,0xAA
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF | YF); // ADD A,0xAA
     c.exec_opcode();
     assert_eq!(0x55, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF); // CPL
     c.exec_opcode();
     assert_eq!(0xAA, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF); // CPL
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | XF | YF); // CPL
 }
 
 #[test]
@@ -1419,7 +1420,7 @@ fn ccf_scf_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), ZF | HF); // CCF
     c.exec_opcode();
     assert_eq!(0x34, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), HF | NF | CF); // SUB 0xCC
+    assert_eq!(c.registers.reg_f.to_byte(), HF | NF | CF | XF); // SUB 0xCC
     c.exec_opcode();
     assert_eq!(0x34, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), XF | HF); // CCF
@@ -1609,7 +1610,7 @@ fn jp_cc_nn_asm() {
     assert_eq!(0x021D, c.registers.reg_pc);
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), SF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x0222, c.registers.reg_pc);
     c.exec_opcode();
@@ -1668,13 +1669,13 @@ fn ldi_asm() {
     assert_eq!(0x2002, c.registers.get_de());
     assert_eq!(0x0001, c.registers.get_bc());
     assert_eq!(0x02, c.bus.read_mem(0x2001));
-    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | YF);
     c.exec_opcode();
     assert_eq!(0x1003, c.registers.get_hl());
     assert_eq!(0x2003, c.registers.get_de());
     assert_eq!(0x0000, c.registers.get_bc());
     assert_eq!(0x03, c.bus.read_mem(0x2002));
-    assert_eq!(c.registers.reg_f.to_byte(), 0);
+    assert_eq!(c.registers.reg_f.to_byte(), YF);
 }
 
 #[test]
@@ -1692,7 +1693,7 @@ fn ldir_asm() {
     assert_eq!(0x2003, c.registers.get_de());
     assert_eq!(0x0000, c.registers.get_bc());
     assert_eq!(0x03, c.bus.read_mem(0x2002));
-    assert_eq!(c.registers.reg_f.to_byte(), 0);
+    assert_eq!(c.registers.reg_f.to_byte(), YF);
     c.exec_opcode();
     assert_eq!(0x33, c.registers.reg_a);
 }
@@ -1712,13 +1713,13 @@ fn ldd_asm() {
     assert_eq!(0x2001, c.registers.get_de());
     assert_eq!(0x0002, c.registers.get_bc());
     assert_eq!(0x03, c.bus.read_mem(0x2002));
-    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | YF);
     c.exec_opcode();
     assert_eq!(0x1000, c.registers.get_hl());
     assert_eq!(0x2000, c.registers.get_de());
     assert_eq!(0x0001, c.registers.get_bc());
     assert_eq!(0x02, c.bus.read_mem(0x2001));
-    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | YF);
     c.exec_opcode();
     assert_eq!(0x0FFF, c.registers.get_hl());
     assert_eq!(0x1FFF, c.registers.get_de());
@@ -1761,7 +1762,7 @@ fn cpi_asm() {
     c.exec_opcode();
     assert_eq!(0x1001, c.registers.get_hl());
     assert_eq!(0x0003, c.registers.get_bc());
-    assert_eq!(c.registers.reg_f.to_byte(), PF | NF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | NF | YF);
     let f = c.registers.reg_f.to_byte() | CF;
     c.registers.reg_f.from(f);
     c.exec_opcode();
@@ -1775,7 +1776,7 @@ fn cpi_asm() {
     c.exec_opcode();
     assert_eq!(0x1004, c.registers.get_hl());
     assert_eq!(0x0000, c.registers.get_bc());
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | CF | XF | YF);
 }
 
 #[test]
@@ -1798,7 +1799,7 @@ fn cpir_asm() {
     c.exec_opcode();
     assert_eq!(0x1004, c.registers.get_hl());
     assert_eq!(0x0000, c.registers.get_bc());
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | NF | XF | YF);
 }
 
 #[test]
@@ -1815,7 +1816,7 @@ fn cpd_asm() {
     c.exec_opcode();
     assert_eq!(0x1002, c.registers.get_hl());
     assert_eq!(0x0003, c.registers.get_bc());
-    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | PF | NF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | HF | PF | NF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x1001, c.registers.get_hl());
     assert_eq!(0x0002, c.registers.get_bc());
@@ -1827,7 +1828,7 @@ fn cpd_asm() {
     c.exec_opcode();
     assert_eq!(0x0FFF, c.registers.get_hl());
     assert_eq!(0x0000, c.registers.get_bc());
-    assert_eq!(c.registers.reg_f.to_byte(), NF);
+    assert_eq!(c.registers.reg_f.to_byte(), NF | YF);
 }
 
 #[test]
@@ -1897,7 +1898,7 @@ fn add_adc_sbc_16_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), SF | HF | PF);
     c.exec_opcode();
     assert_eq!(0x7FFF, c.registers.get_hl());
-    assert_eq!(c.registers.reg_f.to_byte(), NF | HF | PF);
+    assert_eq!(c.registers.reg_f.to_byte(), NF | HF | PF | XF | YF);
 }
 
 #[test]
@@ -1950,7 +1951,7 @@ fn ld_a_ir_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF);
     c.exec_opcode();
     assert_eq!(0x34, c.registers.reg_a);
-    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | XF);
 }
 
 #[test]
@@ -1980,10 +1981,10 @@ fn rlc_rl_rrc_rr_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), CF);
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_b);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_b);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x06, c.registers.reg_c);
     assert_eq!(c.registers.reg_f.to_byte(), PF);
@@ -1992,28 +1993,28 @@ fn rlc_rl_rrc_rr_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), PF);
     c.exec_opcode();
     assert_eq!(0xFD, c.registers.reg_d);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0xFE, c.registers.reg_d);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x88, c.registers.reg_e);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | YF);
     c.exec_opcode();
     assert_eq!(0x11, c.registers.reg_e);
     assert_eq!(c.registers.reg_f.to_byte(), PF | CF);
     c.exec_opcode();
     assert_eq!(0x7E, c.registers.reg_h);
-    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x3F, c.registers.reg_h);
-    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | XF | YF);
     c.exec_opcode();
     assert_eq!(0xE0, c.registers.reg_l);
-    assert_eq!(c.registers.reg_f.to_byte(), SF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF);
     c.exec_opcode();
     assert_eq!(0x70, c.registers.reg_l);
-    assert_eq!(c.registers.reg_f.to_byte(), 0);
+    assert_eq!(c.registers.reg_f.to_byte(), XF);
     c.exec_opcode();
     assert_eq!(0x00, c.registers.reg_a);
     assert_eq!(c.registers.reg_f.to_byte(), ZF | PF | CF);
@@ -2022,10 +2023,10 @@ fn rlc_rl_rrc_rr_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), 0);
     c.exec_opcode();
     assert_eq!(0x7F, c.registers.reg_b);
-    assert_eq!(c.registers.reg_f.to_byte(), CF);
+    assert_eq!(c.registers.reg_f.to_byte(), CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_b);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x06, c.registers.reg_c);
     assert_eq!(c.registers.reg_f.to_byte(), PF);
@@ -2034,28 +2035,28 @@ fn rlc_rl_rrc_rr_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), PF);
     c.exec_opcode();
     assert_eq!(0xFC, c.registers.reg_d);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0xFE, c.registers.reg_d);
-    assert_eq!(c.registers.reg_f.to_byte(), SF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x08, c.registers.reg_e);
-    assert_eq!(c.registers.reg_f.to_byte(), CF);
+    assert_eq!(c.registers.reg_f.to_byte(), CF | YF);
     c.exec_opcode();
     assert_eq!(0x11, c.registers.reg_e);
     assert_eq!(c.registers.reg_f.to_byte(), PF);
     c.exec_opcode();
     assert_eq!(0x7E, c.registers.reg_h);
-    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x3F, c.registers.reg_h);
-    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | XF | YF);
     c.exec_opcode();
     assert_eq!(0xE0, c.registers.reg_l);
-    assert_eq!(c.registers.reg_f.to_byte(), SF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF);
     c.exec_opcode();
     assert_eq!(0x70, c.registers.reg_l);
-    assert_eq!(c.registers.reg_f.to_byte(), 0);
+    assert_eq!(c.registers.reg_f.to_byte(), XF);
 }
 
 #[test]
@@ -2080,17 +2081,17 @@ fn rrc_rlc_rr_rl_i_hl_ix_iy_asm() {
     assert_eq!(0x01, c.registers.reg_a); // LD A,(HL)
     c.exec_opcode();
     assert_eq!(0xFF, c.bus.read_mem(0x1001));
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF); // RRC (IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | XF | YF); // RRC (IX+1)
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a); // LD A,(IX+1)
     c.exec_opcode();
     assert_eq!(0xFF, c.bus.read_mem(0x1001));
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF); // RLC (IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | XF | YF); // RLC (IX+1)
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a); // LD A,(IX+1)
     c.exec_opcode();
     assert_eq!(0x88, c.bus.read_mem(0x1002));
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF); // RRC (IY-1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | YF); // RRC (IY-1)
     c.exec_opcode();
     assert_eq!(0x88, c.registers.reg_a); // LD A,(IY-1)
     c.exec_opcode();
@@ -2110,17 +2111,17 @@ fn rrc_rlc_rr_rl_i_hl_ix_iy_asm() {
     assert_eq!(0x01, c.registers.reg_a); // LD A,(HL)
     c.exec_opcode();
     assert_eq!(0xFF, c.bus.read_mem(0x1001));
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF); // RR (IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | XF | YF); // RR (IX+1)
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a); // LD A,(IX+1)
     c.exec_opcode();
     assert_eq!(0xFF, c.bus.read_mem(0x1001));
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF); // RL (IX+1)
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | XF | YF); // RL (IX+1)
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_a); // LD A,(IX+1)
     c.exec_opcode();
     assert_eq!(0x23, c.bus.read_mem(0x1002));
-    assert_eq!(c.registers.reg_f.to_byte(), 0); // RL (IY-1)
+    assert_eq!(c.registers.reg_f.to_byte(), XF); // RL (IY-1)
     c.exec_opcode();
     assert_eq!(0x23, c.registers.reg_a); // LD A,(IY-1)
     c.exec_opcode();
@@ -2148,13 +2149,13 @@ fn sla_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), CF);
     c.exec_opcode();
     assert_eq!(0xFC, c.registers.reg_d);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0xFE, c.registers.reg_e);
-    assert_eq!(c.registers.reg_f.to_byte(), SF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x22, c.registers.reg_h);
-    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | XF);
     c.exec_opcode();
     assert_eq!(0x00, c.registers.reg_l);
     assert_eq!(c.registers.reg_f.to_byte(), ZF | PF);
@@ -2178,13 +2179,13 @@ fn sra_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), SF);
     c.exec_opcode();
     assert_eq!(0xFF, c.registers.reg_d);
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x3F, c.registers.reg_e);
-    assert_eq!(c.registers.reg_f.to_byte(), PF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x08, c.registers.reg_h);
-    assert_eq!(c.registers.reg_f.to_byte(), CF);
+    assert_eq!(c.registers.reg_f.to_byte(), CF | YF);
     c.exec_opcode();
     assert_eq!(0x00, c.registers.reg_l);
     assert_eq!(c.registers.reg_f.to_byte(), ZF | PF);
@@ -2208,13 +2209,13 @@ fn srl_r_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), PF);
     c.exec_opcode();
     assert_eq!(0x7F, c.registers.reg_d);
-    assert_eq!(c.registers.reg_f.to_byte(), 0);
+    assert_eq!(c.registers.reg_f.to_byte(), XF | YF);
     c.exec_opcode();
     assert_eq!(0x3F, c.registers.reg_e);
-    assert_eq!(c.registers.reg_f.to_byte(), PF | CF);
+    assert_eq!(c.registers.reg_f.to_byte(), PF | CF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x08, c.registers.reg_h);
-    assert_eq!(c.registers.reg_f.to_byte(), CF);
+    assert_eq!(c.registers.reg_f.to_byte(), CF | YF);
     c.exec_opcode();
     assert_eq!(0x00, c.registers.reg_l);
     assert_eq!(c.registers.reg_f.to_byte(), ZF | PF);
@@ -2274,32 +2275,32 @@ fn sra_i_hl_ix_iy_asm() {
     assert_eq!(0xD5, c.registers.reg_a);
 }
 
-// #[test]
-// fn srl_i_hl_ix_iy_asm() {
-//     let mut c = Cpu::new(None);
-//     c.bus.write_mem(0x1000, 0x01);
-//     c.bus.write_mem(0x1001, 0x80);
-//     c.bus.write_mem(0x1002, 0xAA);
-//     load_bin("tests/srl_i_hl_ix_iy.bin", &mut c.bus.ram, 0).unwrap();
-//     for _ in 0..3 {
-//         c.exec_opcode();
-//     }
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.bus.read_mem(0x1000));
-//     assert_eq!(c.registers.reg_f.to_byte(), ZF | PF | CF);
-//     c.exec_opcode();
-//     assert_eq!(0x00, c.registers.reg_a);
-//     c.exec_opcode();
-//     assert_eq!(0x40, c.bus.read_mem(0x1001));
-//     assert_eq!(c.registers.reg_f.to_byte(), 0);
-//     c.exec_opcode();
-//     assert_eq!(0x40, c.registers.reg_a);
-//     c.exec_opcode();
-//     assert_eq!(0x55, c.bus.read_mem(0x1002));
-//     assert_eq!(c.registers.reg_f.to_byte(), PF);
-//     c.exec_opcode();
-//     assert_eq!(0x55, c.registers.reg_a);
-// }
+#[test]
+fn srl_i_hl_ix_iy_asm() {
+    let mut c = Cpu::new(None);
+    c.bus.write_mem(0x1000, 0x01);
+    c.bus.write_mem(0x1001, 0x80);
+    c.bus.write_mem(0x1002, 0xAA);
+    load_bin("tests/srl_i_hl_ix_iy.bin", &mut c.bus.ram, 0).unwrap();
+    for _ in 0..3 {
+        c.exec_opcode();
+    }
+    c.exec_opcode();
+    assert_eq!(0x00, c.bus.read_mem(0x1000));
+    assert_eq!(c.registers.reg_f.to_byte(), ZF | PF | CF);
+    c.exec_opcode();
+    assert_eq!(0x00, c.registers.reg_a);
+    c.exec_opcode();
+    assert_eq!(0x40, c.bus.read_mem(0x1001));
+    assert_eq!(c.registers.reg_f.to_byte(), 0);
+    c.exec_opcode();
+    assert_eq!(0x40, c.registers.reg_a);
+    c.exec_opcode();
+    assert_eq!(0x55, c.bus.read_mem(0x1002));
+    assert_eq!(c.registers.reg_f.to_byte(), PF);
+    c.exec_opcode();
+    assert_eq!(0x55, c.registers.reg_a);
+}
 
 #[test]
 fn rld_rrd_asm() {
@@ -2326,11 +2327,11 @@ fn rld_rrd_asm() {
     c.exec_opcode();
     assert_eq!(0xF0, c.registers.reg_a);
     assert_eq!(0x0E, c.bus.read_mem(0x1000));
-    assert_eq!(c.registers.reg_f.to_byte(), SF | PF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | PF | XF);
     c.exec_opcode();
     assert_eq!(0xFE, c.registers.reg_a);
     assert_eq!(0x00, c.bus.read_mem(0x1000));
-    assert_eq!(c.registers.reg_f.to_byte(), SF);
+    assert_eq!(c.registers.reg_f.to_byte(), SF | XF | YF);
     c.exec_opcode();
     assert_eq!(0x00, c.registers.reg_a);
     c.exec_opcode();
@@ -2993,7 +2994,7 @@ fn ld_sp_hl() {
     c.registers.reg_l = 0x6c;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
-    assert_eq!(c.registers.reg_sp, 0x506c)
+    assert_eq!(c.registers.reg_sp, 0x506c);
 }
 
 #[test]
@@ -3004,7 +3005,7 @@ fn ld_sp_ix() {
     c.registers.set_ix(0x98DA);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_sp, 0x98DA)
+    assert_eq!(c.registers.reg_sp, 0x98DA);
 }
 
 #[test]
@@ -3015,7 +3016,7 @@ fn ld_sp_iy() {
     c.registers.set_iy(0x98DA);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_sp, 0x98DA)
+    assert_eq!(c.registers.reg_sp, 0x98DA);
 }
 
 #[test]
@@ -3025,7 +3026,7 @@ fn push_af() {
     c.registers.reg_a = 0x22;
     c.registers.reg_f.from(0x33);
     c.registers.reg_sp = 0x1007;
-    assert_eq!(c.registers.reg_f.to_byte(), 0b00110011);
+    assert_eq!(c.registers.reg_f.to_byte(), 0b0011_0011);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(c.registers.reg_sp, 0x1005);
@@ -3303,8 +3304,8 @@ fn cpi() {
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(c.registers.get_hl(), 0x1112);
     assert_eq!(c.registers.get_bc(), 0);
-    assert_eq!(c.registers.reg_f.z, true);
-    assert_eq!(c.registers.reg_f.p, false);
+    assert!(c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.p));
 }
 
 #[test]
@@ -3322,8 +3323,8 @@ fn cpir() {
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(c.registers.get_hl(), 0x1114);
     assert_eq!(c.registers.get_bc(), 4);
-    assert_eq!(c.registers.reg_f.z, true);
-    assert_eq!(c.registers.reg_f.p, true);
+    assert!(c.registers.reg_f.z);
+    assert!(c.registers.reg_f.p);
 }
 
 #[test]
@@ -3339,8 +3340,8 @@ fn cpd() {
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(c.registers.get_hl(), 0x1110);
     assert_eq!(c.registers.get_bc(), 0);
-    assert_eq!(c.registers.reg_f.z, true);
-    assert_eq!(c.registers.reg_f.p, false);
+    assert!(c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.p));
 }
 
 #[test]
@@ -3358,8 +3359,8 @@ fn cpdr() {
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(c.registers.get_hl(), 0x1115);
     assert_eq!(c.registers.get_bc(), 4);
-    assert_eq!(c.registers.reg_f.z, true);
-    assert_eq!(c.registers.reg_f.p, true);
+    assert!(c.registers.reg_f.z);
+    assert!(c.registers.reg_f.p);
 }
 
 #[test]
@@ -3500,7 +3501,7 @@ fn sbc_a_r_ovf() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(c.registers.reg_a, 0x7E);
-    assert_eq!(c.registers.reg_f.p, true);
+    assert!(c.registers.reg_f.p);
 }
 
 #[test]
@@ -3670,8 +3671,8 @@ fn cp_r() {
     c.registers.reg_e = 0x05;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
-    assert_eq!(c.registers.reg_f.z, false);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert!(!(c.registers.reg_f.z));
+    assert!(!(c.registers.reg_f.c));
 }
 
 #[test]
@@ -3682,8 +3683,8 @@ fn cp_n() {
     c.registers.reg_a = 0x0A;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_f.z, false);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert!(!(c.registers.reg_f.z));
+    assert!(!(c.registers.reg_f.c));
 }
 
 #[test]
@@ -3696,8 +3697,8 @@ fn cp_ix_d() {
     c.registers.reg_a = 0x0A;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 3);
-    assert_eq!(c.registers.reg_f.z, false);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert!(!(c.registers.reg_f.z));
+    assert!(!(c.registers.reg_f.c));
 }
 
 #[test]
@@ -3710,8 +3711,8 @@ fn cp_iy_d() {
     c.registers.reg_a = 0x0A;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 3);
-    assert_eq!(c.registers.reg_f.z, false);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert!(!(c.registers.reg_f.z));
+    assert!(!(c.registers.reg_f.c));
 }
 
 #[test]
@@ -3722,7 +3723,7 @@ fn inc_b() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0001);
     assert_eq!(0, c.registers.reg_b);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
 }
 
 #[test]
@@ -3733,7 +3734,7 @@ fn inc_c() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0001);
     assert_eq!(0, c.registers.reg_c);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
 }
 
 #[test]
@@ -3744,7 +3745,7 @@ fn inc_d() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0001);
     assert_eq!(0, c.registers.reg_d);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
 }
 
 #[test]
@@ -3755,7 +3756,7 @@ fn inc_e() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0001);
     assert_eq!(0, c.registers.reg_e);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
 }
 
 #[test]
@@ -3766,7 +3767,7 @@ fn inc_h() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0001);
     assert_eq!(0, c.registers.reg_h);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
 }
 
 #[test]
@@ -3777,7 +3778,7 @@ fn inc_l() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0001);
     assert_eq!(0, c.registers.reg_l);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
 }
 
 #[test]
@@ -3790,11 +3791,11 @@ fn inc_c_hl() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0001);
     assert_eq!(0, c.bus.read_mem(0x100));
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0002);
     assert_eq!(1, c.bus.read_mem(0x100));
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3805,8 +3806,8 @@ fn inc_a() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0001);
     assert_eq!(0x10, c.registers.reg_a);
-    assert_eq!(false, c.registers.reg_f.z);
-    assert_eq!(true, c.registers.reg_f.h);
+    assert!(!(c.registers.reg_f.z));
+    assert!(c.registers.reg_f.h);
 }
 
 #[test]
@@ -3820,7 +3821,7 @@ fn inc_ix_d() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x03);
     assert_eq!(0, c.bus.read_mem(0x105));
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
 }
 
 #[test]
@@ -3834,7 +3835,7 @@ fn inc_iy_d() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x03);
     assert_eq!(0, c.bus.read_mem(0x105));
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
 }
 
 #[test]
@@ -3846,11 +3847,11 @@ fn dcr_b() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(0, c.registers.reg_b);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(0xff, c.registers.reg_b);
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3862,11 +3863,11 @@ fn dcr_c() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(0, c.registers.reg_c);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(0xff, c.registers.reg_c);
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3878,11 +3879,11 @@ fn dcr_d() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(0, c.registers.reg_d);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(0xff, c.registers.reg_d);
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3894,11 +3895,11 @@ fn dcr_e() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(0, c.registers.reg_e);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(0xff, c.registers.reg_e);
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3910,11 +3911,11 @@ fn dcr_h() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(0, c.registers.reg_h);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(0xff, c.registers.reg_h);
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3926,11 +3927,11 @@ fn dcr_l() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(0, c.registers.reg_l);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(0xff, c.registers.reg_l);
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3943,11 +3944,11 @@ fn dcr_m() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(0x54, c.bus.read_mem(0x0100));
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(0x53, c.bus.read_mem(0x0100));
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3959,11 +3960,11 @@ fn dcr_a() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(0, c.registers.reg_a);
-    assert_eq!(true, c.registers.reg_f.z);
+    assert!(c.registers.reg_f.z);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
     assert_eq!(0xff, c.registers.reg_a);
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3977,7 +3978,7 @@ fn dec_ix_d() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x03);
     assert_eq!(0xFE, c.bus.read_mem(0x105));
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -3991,7 +3992,7 @@ fn dec_iy_d() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x03);
     assert_eq!(0xFE, c.bus.read_mem(0x105));
-    assert_eq!(false, c.registers.reg_f.z);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -4004,8 +4005,8 @@ fn daa() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
     assert_eq!(c.registers.reg_a, 1);
-    assert_eq!(c.registers.reg_f.h, true);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert!(c.registers.reg_f.h);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4013,10 +4014,10 @@ fn neg_doc() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xED);
     c.bus.write_mem(0x0001, 0x44);
-    c.registers.reg_a = 0b10011000;
+    c.registers.reg_a = 0b1001_1000;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(0b01101000, c.registers.reg_a);
+    assert_eq!(0b0110_1000, c.registers.reg_a);
 }
 
 #[test]
@@ -4030,7 +4031,7 @@ fn neg_asm() {
     assert_eq!(c.registers.reg_f.to_byte(), YF | XF | SF | HF | NF | CF); // NEG
     c.exec_opcode();
     assert_eq!(c.registers.reg_a, 0x00);
-    assert_eq!(c.registers.reg_f.to_byte(), YF | XF | ZF | HF | CF); // ADD A,0x01
+    assert_eq!(c.registers.reg_f.to_byte(), ZF | HF | CF); // ADD A,0x01
     c.exec_opcode();
     assert_eq!(c.registers.reg_a, 0x00);
     assert_eq!(c.registers.reg_f.to_byte(), ZF | NF); // NEG
@@ -4054,10 +4055,10 @@ fn ccf() {
     c.bus.write_mem(0x0000, 0x3f);
     c.bus.write_mem(0x0001, 0x3f);
     c.exec_opcode();
-    assert_eq!(true, c.registers.reg_f.c);
+    assert!(c.registers.reg_f.c);
     assert_eq!(c.registers.reg_pc, 0x0001);
     c.exec_opcode();
-    assert_eq!(false, c.registers.reg_f.c);
+    assert!(!(c.registers.reg_f.c));
     assert_eq!(c.registers.reg_pc, 0x0002);
 }
 
@@ -4068,10 +4069,10 @@ fn scf() {
     c.bus.write_mem(0x0001, 0x37);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0001);
-    assert_eq!(true, c.registers.reg_f.c);
+    assert!(c.registers.reg_f.c);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 0x0002);
-    assert_eq!(true, c.registers.reg_f.c);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4083,7 +4084,7 @@ fn add_hl_b() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_h, 0xD5);
     assert_eq!(c.registers.reg_l, 0x1A);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert!(!(c.registers.reg_f.c));
     assert_eq!(c.registers.reg_pc, 1);
 }
 
@@ -4096,7 +4097,7 @@ fn add_hl_d() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_h, 0xD5);
     assert_eq!(c.registers.reg_l, 0x1A);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert!(!(c.registers.reg_f.c));
     assert_eq!(c.registers.reg_pc, 1);
 }
 
@@ -4108,7 +4109,7 @@ fn add_hl_h() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_h, 0x67);
     assert_eq!(c.registers.reg_l, 0x3e);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert!(!(c.registers.reg_f.c));
     assert_eq!(c.registers.reg_pc, 1);
 }
 
@@ -4121,7 +4122,7 @@ fn add_hl_sp() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_h, 0xD5);
     assert_eq!(c.registers.reg_l, 0x1A);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert!(!(c.registers.reg_f.c));
     assert_eq!(c.registers.reg_pc, 1);
 }
 
@@ -4151,7 +4152,7 @@ fn adc_hl_d_ovf() {
     assert_eq!(c.registers.reg_h, 0x80);
     assert_eq!(c.registers.reg_l, 0x00);
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_f.p, true);
+    assert!(c.registers.reg_f.p);
 }
 
 #[test]
@@ -4165,7 +4166,7 @@ fn adc_hl_h_ovf() {
     assert_eq!(c.registers.reg_h, 0x00);
     assert_eq!(c.registers.reg_l, 0x1F);
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_f.p, false);
+    assert!(!(c.registers.reg_f.p));
 }
 
 #[test]
@@ -4180,7 +4181,7 @@ fn adc_hl_sp_ovf() {
     assert_eq!(c.registers.reg_h, 0x80);
     assert_eq!(c.registers.reg_l, 0x00);
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_f.p, true);
+    assert!(c.registers.reg_f.p);
 }
 
 #[test]
@@ -4289,46 +4290,46 @@ fn dec_iy() {
 fn rlca() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0x07);
-    c.registers.reg_a = 0b10001000;
+    c.registers.reg_a = 0b1000_1000;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
-    assert_eq!(c.registers.reg_a, 0b00010001);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.registers.reg_a, 0b0001_0001);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
 fn rla() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0x17);
-    c.registers.reg_a = 0b01110110;
+    c.registers.reg_a = 0b0111_0110;
     c.registers.reg_f.c = true;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
-    assert_eq!(c.registers.reg_a, 0b11101101);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert_eq!(c.registers.reg_a, 0b1110_1101);
+    assert!(!(c.registers.reg_f.c));
 }
 
 #[test]
 fn rrca() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0x0F);
-    c.registers.reg_a = 0b00010001;
+    c.registers.reg_a = 0b0001_0001;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
-    assert_eq!(c.registers.reg_a, 0b10001000);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.registers.reg_a, 0b1000_1000);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
 fn rra() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0x1F);
-    c.registers.reg_a = 0b11100001;
+    c.registers.reg_a = 0b1110_0001;
     c.registers.reg_f.c = false;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 1);
-    assert_eq!(c.registers.reg_a, 0b01110000);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.registers.reg_a, 0b0111_0000);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4336,11 +4337,11 @@ fn rlc_a() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xCB);
     c.bus.write_mem(0x0001, 0x07);
-    c.registers.reg_a = 0b10001000;
+    c.registers.reg_a = 0b1000_1000;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_a, 0b00010001);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.registers.reg_a, 0b0001_0001);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4348,12 +4349,12 @@ fn rlc_hl() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xCB);
     c.bus.write_mem(0x0001, 0x06);
-    c.bus.write_mem(0x2828, 0b10001000);
+    c.bus.write_mem(0x2828, 0b1000_1000);
     c.registers.set_hl(0x2828);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.bus.read_mem(0x2828), 0b00010001);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x2828), 0b0001_0001);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4363,12 +4364,12 @@ fn rlc_ix_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x06);
-    c.bus.write_mem(0x1002, 0b10001000);
+    c.bus.write_mem(0x1002, 0b1000_1000);
     c.registers.set_ix(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b00010001);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b0001_0001);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4378,12 +4379,12 @@ fn rlc_iy_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x06);
-    c.bus.write_mem(0x1002, 0b10001000);
+    c.bus.write_mem(0x1002, 0b1000_1000);
     c.registers.set_iy(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b00010001);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b0001_0001);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4391,12 +4392,12 @@ fn rl_d() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xCB);
     c.bus.write_mem(0x0001, 0x12);
-    c.registers.reg_d = 0b10001111;
+    c.registers.reg_d = 0b1000_1111;
     c.registers.reg_f.c = false;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_d, 0b00011110);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.registers.reg_d, 0b0001_1110);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4406,13 +4407,13 @@ fn rl_ix_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x16);
-    c.bus.write_mem(0x1002, 0b10001111);
+    c.bus.write_mem(0x1002, 0b1000_1111);
     c.registers.reg_f.c = false;
     c.registers.set_ix(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b00011110);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b0001_1110);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4422,13 +4423,13 @@ fn rl_iy_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x16);
-    c.bus.write_mem(0x1002, 0b10001111);
+    c.bus.write_mem(0x1002, 0b1000_1111);
     c.registers.reg_f.c = false;
     c.registers.set_iy(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b00011110);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b0001_1110);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4436,11 +4437,11 @@ fn rrc_a() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xCB);
     c.bus.write_mem(0x0001, 0x0F);
-    c.registers.reg_a = 0b00110001;
+    c.registers.reg_a = 0b0011_0001;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_a, 0b10011000);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.registers.reg_a, 0b1001_1000);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4450,13 +4451,13 @@ fn rrc_ix_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x0E);
-    c.bus.write_mem(0x1002, 0b00110001);
+    c.bus.write_mem(0x1002, 0b0011_0001);
     c.registers.reg_f.c = false;
     c.registers.set_ix(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b10011000);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b1001_1000);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4466,13 +4467,13 @@ fn rrc_iy_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x0E);
-    c.bus.write_mem(0x1002, 0b00110001);
+    c.bus.write_mem(0x1002, 0b0011_0001);
     c.registers.reg_f.c = false;
     c.registers.set_iy(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b10011000);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b1001_1000);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4480,12 +4481,12 @@ fn rr_hl() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xCB);
     c.bus.write_mem(0x0001, 0x1E);
-    c.bus.write_mem(0x4343, 0b11011101);
+    c.bus.write_mem(0x4343, 0b1101_1101);
     c.registers.set_hl(0x4343);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.bus.read_mem(0x4343), 0b01101110);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x4343), 0b0110_1110);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4495,13 +4496,13 @@ fn rr_ix_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x1E);
-    c.bus.write_mem(0x1002, 0b11011101);
+    c.bus.write_mem(0x1002, 0b1101_1101);
     c.registers.reg_f.c = false;
     c.registers.set_ix(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b01101110);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b0110_1110);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4511,13 +4512,13 @@ fn rr_iy_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x1E);
-    c.bus.write_mem(0x1002, 0b11011101);
+    c.bus.write_mem(0x1002, 0b1101_1101);
     c.registers.reg_f.c = false;
     c.registers.set_iy(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b01101110);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b0110_1110);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4525,11 +4526,11 @@ fn sla_l() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xCB);
     c.bus.write_mem(0x0001, 0x25);
-    c.registers.reg_l = 0b10110001;
+    c.registers.reg_l = 0b1011_0001;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_l, 0b01100010);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.registers.reg_l, 0b0110_0010);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4539,13 +4540,13 @@ fn sla_ix_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x26);
-    c.bus.write_mem(0x1002, 0b10110001);
+    c.bus.write_mem(0x1002, 0b1011_0001);
     c.registers.reg_f.c = false;
     c.registers.set_ix(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b01100010);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b0110_0010);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4555,13 +4556,13 @@ fn sla_iy_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x26);
-    c.bus.write_mem(0x1002, 0b10110001);
+    c.bus.write_mem(0x1002, 0b1011_0001);
     c.registers.reg_f.c = false;
     c.registers.set_iy(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b01100010);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.bus.read_mem(0x1002), 0b0110_0010);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4571,13 +4572,13 @@ fn sra_ix_d() {
     c.bus.write_mem(0x0001, 0xCB);
     c.bus.write_mem(0x0002, 0x02);
     c.bus.write_mem(0x0003, 0x2E);
-    c.bus.write_mem(0x1002, 0b10111000);
+    c.bus.write_mem(0x1002, 0b1011_1000);
     c.registers.reg_f.c = false;
     c.registers.set_ix(0x1000);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
-    assert_eq!(c.bus.read_mem(0x1002), 0b11011100);
-    assert_eq!(c.registers.reg_f.c, false);
+    assert_eq!(c.bus.read_mem(0x1002), 0b1101_1100);
+    assert!(!(c.registers.reg_f.c));
 }
 
 #[test]
@@ -4585,11 +4586,11 @@ fn srl_b() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xCB);
     c.bus.write_mem(0x0001, 0x38);
-    c.registers.reg_b = 0b10001111;
+    c.registers.reg_b = 0b1000_1111;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_b, 0b01000111);
-    assert_eq!(c.registers.reg_f.c, true);
+    assert_eq!(c.registers.reg_b, 0b0100_0111);
+    assert!(c.registers.reg_f.c);
 }
 
 #[test]
@@ -4597,13 +4598,13 @@ fn rld() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xED);
     c.bus.write_mem(0x0001, 0x6F);
-    c.bus.write_mem(0x5000, 0b00110001);
+    c.bus.write_mem(0x5000, 0b0011_0001);
     c.registers.set_hl(0x5000);
-    c.registers.reg_a = 0b01111010;
+    c.registers.reg_a = 0b0111_1010;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_a, 0b01110011);
-    assert_eq!(c.bus.read_mem(0x5000), 0b00011010);
+    assert_eq!(c.registers.reg_a, 0b0111_0011);
+    assert_eq!(c.bus.read_mem(0x5000), 0b0001_1010);
 }
 
 #[test]
@@ -4611,13 +4612,13 @@ fn rrd() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0xED);
     c.bus.write_mem(0x0001, 0x67);
-    c.bus.write_mem(0x5000, 0b00100000);
+    c.bus.write_mem(0x5000, 0b0010_0000);
     c.registers.set_hl(0x5000);
-    c.registers.reg_a = 0b10000100;
+    c.registers.reg_a = 0b1000_0100;
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_a, 0b10000000);
-    assert_eq!(c.bus.read_mem(0x5000), 0b01000010);
+    assert_eq!(c.registers.reg_a, 0b1000_0000);
+    assert_eq!(c.bus.read_mem(0x5000), 0b0100_0010);
 }
 
 #[test]
@@ -4629,7 +4630,7 @@ fn bit_4_hl() {
     c.registers.set_hl(0x4444);
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 2);
-    assert_eq!(c.registers.reg_f.z, false);
+    assert!(!(c.registers.reg_f.z));
     assert_eq!(c.bus.read_mem(0x4444), 0x10);
 }
 
@@ -4645,7 +4646,7 @@ fn bit_6_ix_d() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
     assert_eq!(c.bus.read_mem(0x2004), 0x40);
-    assert_eq!(c.registers.reg_f.z, false);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]
@@ -4660,7 +4661,7 @@ fn bit_6_iy_d() {
     c.exec_opcode();
     assert_eq!(c.registers.reg_pc, 4);
     assert_eq!(c.bus.read_mem(0x2004), 0x40);
-    assert_eq!(c.registers.reg_f.z, false);
+    assert!(!(c.registers.reg_f.z));
 }
 
 #[test]

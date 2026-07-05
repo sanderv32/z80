@@ -4,7 +4,17 @@ description = "Z80 Emulator"
 version = "0.1.0"
 edition = "2021"
 
+[lints.clippy]
+pedantic = "deny"
+mem_forget = "deny"
+
+[features]
+slow-tests = []
+
 [dependencies]
+
+[dev-dependencies]
+ntest = "0.9.5"
 
 [profile.dev]
 debug = true

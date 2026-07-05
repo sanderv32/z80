@@ -57,6 +57,7 @@ impl Bus {
     /// Create new bus with memory
     ///
     /// Creates a new bus with `size` of memory in bytes.
+    #[must_use]
     pub fn new(size: u16) -> Self {
         Self {
             ram: vec![0; (size as usize) + 1],
@@ -78,11 +79,13 @@ impl Bus {
     }
 
     /// Read u8 value from `address`
+    #[must_use]
     pub fn read_mem(&self, address: u16) -> u8 {
         self.ram[usize::from(address)]
     }
 
     /// Read u16 value from `address`
+    #[must_use]
     pub fn read_mem_u16(&self, address: u16) -> u16 {
         u16::from(self.ram[usize::from(address)])
             | u16::from(self.ram[usize::from(address + 1)]) << 8
@@ -90,22 +93,20 @@ impl Bus {
 
     /// Write `value` to `address`
     pub fn write_mem(&mut self, address: u16, value: u8) {
-        if self.rom.is_some()
-            && address >= self.rom.as_ref().unwrap().start
-            && address <= self.rom.as_ref().unwrap().end
-        {
-            return;
+        if let Some(rom) = &self.rom {
+            if address >= rom.start && address <= rom.end {
+                return;
+            }
         }
         self.ram[usize::from(address)] = value;
     }
 
     /// Write u16 `value` to `address`
     pub fn write_mem_u16(&mut self, address: u16, value: u16) {
-        if self.rom.is_some()
-            && address >= self.rom.as_ref().unwrap().start
-            && address <= self.rom.as_ref().unwrap().end
-        {
-            return;
+        if let Some(rom) = &self.rom {
+            if address >= rom.start && address <= rom.end {
+                return;
+            }
         }
         let lb = (value & 0xff) as u8;
         let hb = ((value >> 8) & 0xff) as u8;

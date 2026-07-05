@@ -7,7 +7,7 @@ macro_rules! z80_reg_pair {
         $(#[$m])*
         #[doc=" register"]
         pub fn $get_fn(&mut self) -> u16 {
-            ((self.$reg_h as u16) << 8 | self.$reg_l as u16) as u16
+            u16::from(self.$reg_h) << 8 | u16::from(self.$reg_l)
         }
 
         #[doc="Set "]
@@ -20,6 +20,7 @@ macro_rules! z80_reg_pair {
     };
 }
 
+#[derive(Clone, Copy)]
 pub enum Regs {
     /// Accumulator
     A,
@@ -95,6 +96,7 @@ pub struct Registers {
 
 impl Registers {
     /// Create new instance of registers
+    #[must_use]
     pub fn new() -> Self {
         Self {
             reg_f: Flags::new(),
@@ -107,8 +109,9 @@ impl Registers {
     }
 
     /// Get AF register
+    #[must_use]
     pub fn get_af(&self) -> u16 {
-        (self.reg_a as u16) << 8 | self.reg_f.to_byte() as u16
+        u16::from(self.reg_a) << 8 | u16::from(self.reg_f.to_byte())
     }
 
     /// Set AF register
@@ -118,6 +121,7 @@ impl Registers {
     }
 
     /// Get SP register
+    #[must_use]
     pub fn get_sp(&self) -> u16 {
         self.reg_sp
     }
