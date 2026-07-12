@@ -3,15 +3,23 @@
 
 use crate::bus::Bus;
 use crate::bus::Io;
+use crate::bus::MemoryAccess;
 use crate::flags::{CF, HF, SF, XF, YF};
 use crate::registers::Registers;
 use crate::registers::Regs;
 
+#[derive(PartialEq)]
+pub enum InterruptMode {
+    Mode0,
+    Mode1,
+    Mode2,
+}
+
 /// Each bool models a distinct, independent piece of real Z80 CPU state
 /// (interrupt/halt/reset flip-flops); they aren't related option toggles.
 #[allow(clippy::struct_excessive_bools)]
-pub struct Cpu {
-    pub bus: Bus,
+pub struct Cpu<B: MemoryAccess + Io = Bus> {
+    pub bus: B,
     pub registers: Registers,
     pub alternate: Registers,
 
@@ -20,9 +28,15 @@ pub struct Cpu {
 
     pub iorq: bool,
 
-    pub im: u8,
+    pub im: InterruptMode,
     pub im0data: Option<[u8; 4]>,
     pub int: Option<u8>,
+    /// Set only by `process_interrupt()` when it has just accepted an IM1
+    /// interrupt this instruction boundary; consumed once by the immediately
+    /// following `exec_opcode()`. Distinct from `int` (a level-style pending
+    /// request that may stay `Some` across many steps) so a merely pending,
+    /// not-yet-accepted request can't be misdispatched as an opcode.
+    int_ack: Option<u8>,
     pub nmi: bool,
     pub halt: bool,
 
@@ -57,9 +71,55 @@ impl Cpu {
             reset: false,
             hard_reset: true,
             iorq: false,
-            im: 0,
+            im: InterruptMode::Mode0,
             im0data: None,
             int: None,
+            int_ack: None,
+            nmi: false,
+            halt: false,
+            iff1: false,
+            iff2: false,
+            flags_written: false,
+        }
+    }
+
+    fn abs(value: u8) -> u8 {
+        if value & 0x80 == 0x80 {
+            ((0x100 - u16::from(value)) & 0x007f) as u8
+        } else {
+            value
+        }
+    }
+
+    fn cb_col_to_reg(col: u8) -> Regs {
+        match col {
+            0 => Regs::B,
+            1 => Regs::C,
+            2 => Regs::D,
+            3 => Regs::E,
+            4 => Regs::H,
+            5 => Regs::L,
+            7 => Regs::A,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<B: MemoryAccess + Io> Cpu<B> {
+    /// Create a new Cpu instance with a custom bus implementation.
+    #[must_use]
+    pub fn with_bus(bus: B) -> Self {
+        Self {
+            bus,
+            registers: Registers::new(),
+            alternate: Registers::new(),
+            reset: false,
+            hard_reset: true,
+            iorq: false,
+            im: InterruptMode::Mode0,
+            im0data: None,
+            int: None,
+            int_ack: None,
             nmi: false,
             halt: false,
             iff1: false,
@@ -119,14 +179,6 @@ impl Cpu {
             Regs::H => self.registers.reg_h = value,
             Regs::L => self.registers.reg_l = value,
             _ => (),
-        }
-    }
-
-    fn abs(value: u8) -> u8 {
-        if value & 0x80 == 0x80 {
-            ((0x100 - u16::from(value)) & 0x007f) as u8
-        } else {
-            value
         }
     }
 
@@ -344,11 +396,11 @@ impl Cpu {
         self.registers.reg_f.z = value == 0;
         self.registers.reg_f.h = (hl & 0x0fff) < (r1 & 0x0fff) + carry;
         self.registers.reg_f.p = {
-            let r = (hl as i16).overflowing_sub((r1 + carry) as i16);
+            let r = (hl as i16).overflowing_sub(r1.wrapping_add(carry) as i16);
             r.1
         };
         self.registers.reg_f.n = true;
-        self.registers.reg_f.c = hl < r1 + carry;
+        self.registers.reg_f.c = u32::from(hl) < u32::from(r1) + u32::from(carry);
         self.registers.reg_f.y = (value >> 8) as u8 & YF == YF;
         self.registers.reg_f.x = (value >> 8) as u8 & XF == XF;
     }
@@ -442,7 +494,11 @@ impl Cpu {
         self.flags_written = true;
         let r1 = self.get_value(t);
         self.registers.reg_f.c = r1 & 0x01 == 0x01;
-        let value = if self.registers.reg_f.c { 0x80 | r1 >> 1 } else { r1 >> 1 };
+        let value = if self.registers.reg_f.c {
+            0x80 | r1 >> 1
+        } else {
+            r1 >> 1
+        };
         self.registers.reg_f.h = false;
         self.registers.reg_f.n = false;
         self.registers.reg_f.z = value == 0;
@@ -614,19 +670,6 @@ impl Cpu {
         }
     }
 
-    fn cb_col_to_reg(col: u8) -> Regs {
-        match col {
-            0 => Regs::B,
-            1 => Regs::C,
-            2 => Regs::D,
-            3 => Regs::E,
-            4 => Regs::H,
-            5 => Regs::L,
-            7 => Regs::A,
-            _ => unreachable!(),
-        }
-    }
-
     fn cpi(&mut self) {
         self.flags_written = true;
         let bc = self.registers.get_bc();
@@ -783,6 +826,7 @@ impl Cpu {
     fn process_interrupt(&mut self) -> bool {
         if self.nmi {
             self.nmi = false;
+            self.halt = false;
             self.push_stack(self.registers.reg_pc);
             self.registers.reg_pc = 0x0066;
             self.iff2 = self.iff1;
@@ -790,29 +834,38 @@ impl Cpu {
             return true;
         }
 
-        if self.iff1 && self.im0data.is_some() && self.im == 0 {
+        if self.iff1 && self.im0data.is_some() && self.im == InterruptMode::Mode0 {
             // The IM 0 instruction sets Interrupt Mode 0. In this mode, the interrupting device can insert
             // any instruction on the data bus for execution by the CPU. The first byte of a multi-byte
             // instruction is read during the interrupt acknowledge cycle. Subsequent bytes are read in by
             // a normal memory read sequence.
-            let saved_memory = core::mem::take(&mut self.bus.ram);
+            self.halt = false;
+            let data = self.im0data.unwrap();
             let saved_pc = self.registers.reg_pc;
-            self.bus.ram = self.im0data.as_ref().unwrap().to_vec();
+            let mut saved = [0u8; 4];
+            for i in 0u16..4 {
+                saved[i as usize] = self.bus.read_mem(i);
+                self.bus.write_mem(i, data[i as usize]);
+            }
             self.registers.reg_pc = 0;
             self.exec_opcode();
             self.registers.reg_pc = saved_pc;
-            self.bus.ram = saved_memory;
+            for i in 0u16..4 {
+                self.bus.write_mem(i, saved[i as usize]);
+            }
             self.iff1 = false;
             return true;
         }
 
-        if self.iff1 && self.int.is_some() && self.im == 1 {
-            self.int = Some(0xff);
+        if self.iff1 && self.int.is_some() && self.im == InterruptMode::Mode1 {
+            self.halt = false;
+            self.int_ack = Some(0xff);
             self.iff1 = false;
             return true;
         }
 
-        if self.iff1 && self.int.is_some() && self.im == 2 {
+        if self.iff1 && self.int.is_some() && self.im == InterruptMode::Mode2 {
+            self.halt = false;
             self.push_stack(self.registers.reg_pc);
             let hb = u16::from(self.registers.reg_i);
             let lb = u16::from(self.int.unwrap());
@@ -830,11 +883,17 @@ impl Cpu {
             return;
         }
 
-        let opcode = if self.iff1 { match self.int {
-            None => self.bus.read_mem(self.registers.reg_pc),
-            Some(opcode) => opcode,
-        } } else { self.bus.read_mem(self.registers.reg_pc) };
-        self.registers.reg_pc = self.registers.reg_pc.wrapping_add(1);
+        // An injected interrupt-acknowledge opcode (int_ack, e.g. IM1's RST 38,
+        // set only once process_interrupt() has actually accepted the
+        // interrupt this instruction boundary) is not fetched from memory, so
+        // unlike a real M1 cycle it must not advance the program counter.
+        let opcode = if let Some(opcode) = self.int_ack.take() { opcode } else {
+            let opcode = self
+                .bus
+                .read_opcode(self.registers.reg_pc, self.registers.get_ir());
+            self.registers.reg_pc = self.registers.reg_pc.wrapping_add(1);
+            opcode
+        };
         self.exec_base_opcode(opcode);
     }
 
@@ -998,7 +1057,11 @@ impl Cpu {
                 self.registers.reg_f.h = false;
                 self.registers.reg_f.n = false;
                 self.registers.reg_f.c = self.registers.reg_a & 0x80 == 0x80;
-                let result = if c { self.registers.reg_a.wrapping_shl(1) | 1 } else { self.registers.reg_a.wrapping_shl(1) };
+                let result = if c {
+                    self.registers.reg_a.wrapping_shl(1) | 1
+                } else {
+                    self.registers.reg_a.wrapping_shl(1)
+                };
                 self.registers.reg_f.y = result & YF == YF;
                 self.registers.reg_f.x = result & XF == XF;
                 self.registers.reg_a = result;
@@ -1491,7 +1554,6 @@ impl Cpu {
             0x76 => {
                 // halt
                 self.halt = true;
-                self.registers.reg_pc = self.registers.reg_pc.wrapping_sub(1);
             }
             0x77 => {
                 // ld (hl),a
@@ -1864,7 +1926,9 @@ impl Cpu {
             }
             0xcb => {
                 let prev_opcode = 0xcb;
-                let opcode = self.bus.read_mem(self.registers.reg_pc);
+                let opcode = self
+                    .bus
+                    .read_opcode(self.registers.reg_pc, self.registers.get_ir());
                 self.registers.reg_pc += 1;
                 match opcode {
                     0x00 => {
@@ -3058,7 +3122,9 @@ impl Cpu {
             }
             0xdd => {
                 let prev_opcode = 0xdd;
-                let opcode = self.bus.read_mem(self.registers.reg_pc);
+                let opcode = self
+                    .bus
+                    .read_opcode(self.registers.reg_pc, self.registers.get_ir());
                 self.registers.reg_pc += 1;
                 match opcode {
                     0x09 => {
@@ -3900,7 +3966,6 @@ impl Cpu {
                     0x76 => {
                         // halt (dd prefix has no effect)
                         self.halt = true;
-                        self.registers.reg_pc = self.registers.reg_pc.wrapping_sub(1);
                     }
                     0x78 => {
                         // ld a,b (dd prefix has no effect)
@@ -3923,7 +3988,10 @@ impl Cpu {
                     0xcb => {
                         // 0xddcb - IX Bit Instructions
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let opcode = self.bus.read_mem(self.registers.reg_pc + 1);
+                        let opcode = self.bus.read_opcode(
+                            self.registers.reg_pc + 1,
+                            self.registers.get_ir(),
+                        );
                         self.registers.reg_pc += 2;
                         let ix = self.registers.get_ix();
                         let addr = if n & 0x80 == 0x80 {
@@ -4072,7 +4140,9 @@ impl Cpu {
             0xed => {
                 // 0xdded prefix
                 let prev_opcode = 0xdded;
-                let opcode = self.bus.read_mem(self.registers.reg_pc);
+                let opcode = self
+                    .bus
+                    .read_opcode(self.registers.reg_pc, self.registers.get_ir());
                 self.registers.reg_pc += 1;
                 match opcode {
                     0x40 => {
@@ -4108,7 +4178,7 @@ impl Cpu {
                     }
                     0x46 => {
                         // im 0
-                        self.im = 0;
+                        self.im = InterruptMode::Mode0;
                     }
                     0x47 => {
                         // ld i,a
@@ -4170,7 +4240,7 @@ impl Cpu {
                     }
                     0x56 => {
                         // im 1
-                        self.im = 1;
+                        self.im = InterruptMode::Mode1;
                     }
                     0x57 => {
                         // ld a,i
@@ -4209,7 +4279,7 @@ impl Cpu {
                     }
                     0x5e => {
                         // im 2
-                        self.im = 2;
+                        self.im = InterruptMode::Mode2;
                     }
                     0x5f => {
                         // ld a,r
@@ -4413,13 +4483,16 @@ impl Cpu {
                         let mut hl = self.registers.get_hl();
                         let mut de = self.registers.get_de();
                         let mut bc = self.registers.get_bc();
-                        let mut value = 0;
-                        while bc != 0 {
+                        let mut value;
+                        loop {
                             value = self.bus.read_mem(hl);
                             self.bus.write_mem(de, value);
                             hl = hl.wrapping_add(1);
                             de = de.wrapping_add(1);
                             bc = bc.wrapping_sub(1);
+                            if bc == 0 {
+                                break;
+                            }
                         }
                         self.registers.set_hl(hl);
                         self.registers.set_de(de);
@@ -4433,9 +4506,9 @@ impl Cpu {
                     }
                     0xb1 => {
                         // cpir
-                        while self.registers.get_bc() > 0 {
+                        loop {
                             self.cpi();
-                            if self.registers.reg_f.z {
+                            if self.registers.reg_f.z || self.registers.get_bc() == 0 {
                                 break;
                             }
                         }
@@ -4464,13 +4537,16 @@ impl Cpu {
                         let mut hl = self.registers.get_hl();
                         let mut de = self.registers.get_de();
                         let mut bc = self.registers.get_bc();
-                        let mut value = 0;
-                        while bc > 0 {
+                        let mut value;
+                        loop {
                             value = self.bus.read_mem(hl);
                             self.bus.write_mem(de, value);
                             hl = hl.wrapping_sub(1);
                             de = de.wrapping_sub(1);
                             bc = bc.wrapping_sub(1);
+                            if bc == 0 {
+                                break;
+                            }
                         }
                         self.registers.set_hl(hl);
                         self.registers.set_de(de);
@@ -4484,9 +4560,9 @@ impl Cpu {
                     }
                     0xb9 => {
                         // cpdr
-                        while self.registers.get_bc() > 0 {
+                        loop {
                             self.cpd();
-                            if self.registers.reg_f.z {
+                            if self.registers.reg_f.z || self.registers.get_bc() == 0 {
                                 break;
                             }
                         }
@@ -4616,7 +4692,9 @@ impl Cpu {
             0xfd => {
                 // IY prefix
                 let prev_opcode = opcode;
-                let opcode = self.bus.read_mem(self.registers.reg_pc);
+                let opcode = self
+                    .bus
+                    .read_opcode(self.registers.reg_pc, self.registers.get_ir());
                 self.registers.reg_pc += 1;
                 match opcode {
                     0x09 => {
@@ -5424,7 +5502,6 @@ impl Cpu {
                     0x76 => {
                         // halt (fd prefix has no effect)
                         self.halt = true;
-                        self.registers.reg_pc = self.registers.reg_pc.wrapping_sub(1);
                     }
                     0x78 => {
                         // ld a,b (fd prefix has no effect)
@@ -5447,7 +5524,10 @@ impl Cpu {
                     0xcb => {
                         // 0xfdcb - IY Bit Instructions
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let opcode = self.bus.read_mem(self.registers.reg_pc + 1);
+                        let opcode = self.bus.read_opcode(
+                            self.registers.reg_pc + 1,
+                            self.registers.get_ir(),
+                        );
                         self.registers.reg_pc += 2;
                         let iy = self.registers.get_iy();
                         let addr = if n & 0x80 == 0x80 {
@@ -5503,6 +5583,10 @@ impl Cpu {
             }
         }
         self.int = None;
+    }
+
+    pub fn set_im(&mut self, mode: InterruptMode) {
+        self.im = mode;
     }
 
     pub fn run(&mut self) {}

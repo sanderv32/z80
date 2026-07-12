@@ -4,6 +4,7 @@ use alloc::vec::Vec;
 use std::io::{self, Read};
 
 use crate::cpu::Cpu;
+use crate::cpu::InterruptMode;
 
 // carry flag
 const CF: u8 = 1 << 0;
@@ -1511,11 +1512,35 @@ fn halt_asm() {
     let mut c = Cpu::new(None);
     load_bin("tests/halt.bin", &mut c.bus.ram, 0).unwrap();
     c.exec_opcode();
-    assert_eq!(0x0000, c.registers.reg_pc);
+    assert_eq!(0x0001, c.registers.reg_pc);
     c.exec_opcode();
-    assert_eq!(0x0000, c.registers.reg_pc);
+    assert_eq!(0x0001, c.registers.reg_pc);
     c.exec_opcode();
-    assert_eq!(0x0000, c.registers.reg_pc);
+    assert_eq!(0x0001, c.registers.reg_pc);
+}
+
+#[test]
+fn halt_resumes_on_maskable_interrupt() {
+    let mut c = Cpu::new(None);
+    load_bin("tests/halt.bin", &mut c.bus.ram, 0).unwrap();
+    c.registers.set_sp(0x2000);
+
+    c.step();
+    assert!(c.halt);
+    assert_eq!(0x0001, c.registers.reg_pc);
+
+    c.iff1 = true;
+    c.set_im(InterruptMode::Mode1);
+    c.irq_request(0xff);
+    c.step();
+
+    assert!(!c.halt, "interrupt should end the halt state");
+    assert_eq!(0x0038, c.registers.reg_pc, "IM1 always vectors to RST 38h");
+    assert_eq!(
+        0x0001,
+        c.pop_stack(),
+        "return address must be one past the HALT, not the HALT itself"
+    );
 }
 
 #[test]
@@ -2669,7 +2694,7 @@ fn hlt() {
     let mut c = Cpu::new(None);
     c.bus.write_mem(0x0000, 0x76);
     c.exec_opcode();
-    assert_eq!(c.registers.reg_pc, 0);
+    assert_eq!(c.registers.reg_pc, 1);
 }
 
 #[test]
@@ -3361,6 +3386,84 @@ fn cpdr() {
     assert_eq!(c.registers.get_bc(), 4);
     assert!(c.registers.reg_f.z);
     assert!(c.registers.reg_f.p);
+}
+
+// On real Z80 hardware, block instructions check BC for zero only *after*
+// decrementing it, so BC=0 on entry is treated as 0x10000 rather than as
+// "already done". The ZX81 ROM's SCROLL routine relies on exactly this via
+// `CPIR` with BC=0 to scan for the display file's line terminator regardless
+// of distance.
+#[test]
+fn cpir_with_bc_zero_scans_instead_of_stopping_immediately() {
+    let mut c = Cpu::new(None);
+    c.bus.write_mem(0x0000, 0xED);
+    c.bus.write_mem(0x0001, 0xB1);
+    c.registers.reg_a = 0x76;
+    c.registers.set_hl(0x1111);
+    c.registers.set_bc(0x0000);
+    c.bus.write_mem(0x1111, 0x20);
+    c.bus.write_mem(0x1112, 0x20);
+    c.bus.write_mem(0x1113, 0x76);
+    c.exec_opcode();
+    assert_eq!(c.registers.reg_pc, 2);
+    assert_eq!(c.registers.get_hl(), 0x1114);
+    assert!(c.registers.reg_f.z);
+}
+
+#[test]
+fn cpdr_with_bc_zero_scans_instead_of_stopping_immediately() {
+    let mut c = Cpu::new(None);
+    c.bus.write_mem(0x0000, 0xED);
+    c.bus.write_mem(0x0001, 0xB9);
+    c.registers.reg_a = 0x76;
+    c.registers.set_hl(0x1113);
+    c.registers.set_bc(0x0000);
+    c.bus.write_mem(0x1111, 0x76);
+    c.bus.write_mem(0x1112, 0x20);
+    c.bus.write_mem(0x1113, 0x20);
+    c.exec_opcode();
+    assert_eq!(c.registers.reg_pc, 2);
+    assert_eq!(c.registers.get_hl(), 0x1110);
+    assert!(c.registers.reg_f.z);
+}
+
+// BC=0 makes LDIR/LDDR sweep the full 65536-byte address space (real
+// hardware quirk, see the CPIR comment above), so HL/DE/BC all wrap back to
+// their starting values once the sweep completes. Address 0x2222 is only
+// ever visited once during that sweep (when HL==0x1111, the very first
+// iteration), so its content is still deterministic.
+#[test]
+fn ldir_with_bc_zero_wraps_around_instead_of_stopping_immediately() {
+    let mut c = Cpu::new(None);
+    c.bus.write_mem(0x0000, 0xED);
+    c.bus.write_mem(0x0001, 0xB0);
+    c.registers.set_hl(0x1111);
+    c.registers.set_de(0x2222);
+    c.registers.set_bc(0x0000);
+    c.bus.write_mem(0x1111, 0x88);
+    c.exec_opcode();
+    assert_eq!(c.registers.reg_pc, 2);
+    assert_eq!(c.registers.get_hl(), 0x1111);
+    assert_eq!(c.registers.get_de(), 0x2222);
+    assert_eq!(c.bus.read_mem(0x2222), 0x88);
+    assert_eq!(c.registers.get_bc(), 0);
+}
+
+#[test]
+fn lddr_with_bc_zero_wraps_around_instead_of_stopping_immediately() {
+    let mut c = Cpu::new(None);
+    c.bus.write_mem(0x0000, 0xED);
+    c.bus.write_mem(0x0001, 0xB8);
+    c.registers.set_hl(0x1112);
+    c.registers.set_de(0x2223);
+    c.registers.set_bc(0x0000);
+    c.bus.write_mem(0x1112, 0x88);
+    c.exec_opcode();
+    assert_eq!(c.registers.reg_pc, 2);
+    assert_eq!(c.registers.get_hl(), 0x1112);
+    assert_eq!(c.registers.get_de(), 0x2223);
+    assert_eq!(c.bus.read_mem(0x2223), 0x88);
+    assert_eq!(c.registers.get_bc(), 0);
 }
 
 #[test]
@@ -4196,6 +4299,23 @@ fn sbc_hl_d() {
     assert_eq!(c.registers.reg_h, 0x88);
     assert_eq!(c.registers.reg_l, 0x87);
     assert_eq!(c.registers.reg_pc, 2);
+}
+
+#[test]
+fn sbc_hl_d_carry_operand_at_max_does_not_overflow() {
+    // SBC HL,DE with DE=0xFFFF and carry-in=1 subtracts 0x10000 total, which
+    // must wrap using 32-bit-widened arithmetic internally rather than
+    // panicking on `u16` addition overflow.
+    let mut c = Cpu::new(None);
+    c.bus.write_mem(0x0000, 0xED);
+    c.bus.write_mem(0x0001, 0x52);
+    c.registers.set_hl(0x1234);
+    c.registers.set_de(0xFFFF);
+    c.registers.reg_f.c = true;
+    c.exec_opcode();
+    assert_eq!(c.registers.get_hl(), 0x1234, "subtracting 0x10000 wraps to identity");
+    assert!(c.registers.reg_f.c, "subtracting more than 0xffff must borrow");
+    assert!(!c.registers.reg_f.p, "no signed overflow in this case");
 }
 
 #[test]

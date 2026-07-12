@@ -14,7 +14,7 @@ pub trait Io {
     /// Read value from IO port `address`
     ///
     /// See `write_io`
-    fn read_io(&self, address: u16) -> u8;
+    fn read_io(&mut self, address: u16) -> u8;
 }
 
 pub trait MemoryAccess {
@@ -26,6 +26,10 @@ pub trait MemoryAccess {
     fn write_mem(&mut self, address: u16, value: u8);
     /// Write u16 `value` to `address`
     fn write_mem_u16(&mut self, address: u16, value: u16);
+    /// Read opcode byte from `pc` during an M1 (opcode fetch) cycle
+    ///
+    /// `ir` is the combined I/R register pair at the time of fetch.
+    fn read_opcode(&mut self, pc: u16, ir: u16) -> u8;
 }
 
 struct Rom {
@@ -44,12 +48,8 @@ impl Io for Bus {
         self.io[(address & 0xff) as usize] = value;
     }
 
-    fn read_io(&self, address: u16) -> u8 {
-        if (address & 0xff) == 0xfe {
-            0xbf
-        } else {
-            self.io[(address & 0xff) as usize]
-        }
+    fn read_io(&mut self, address: u16) -> u8 {
+        self.io[(address & 0xff) as usize]
     }
 }
 
@@ -112,6 +112,28 @@ impl Bus {
         let hb = ((value >> 8) & 0xff) as u8;
         self.ram[usize::from(address)] = lb;
         self.ram[usize::from(address + 1)] = hb;
+    }
+}
+
+impl MemoryAccess for Bus {
+    fn read_mem(&self, address: u16) -> u8 {
+        self.read_mem(address)
+    }
+
+    fn read_mem_u16(&self, address: u16) -> u16 {
+        self.read_mem_u16(address)
+    }
+
+    fn write_mem(&mut self, address: u16, value: u8) {
+        self.write_mem(address, value);
+    }
+
+    fn write_mem_u16(&mut self, address: u16, value: u16) {
+        self.write_mem_u16(address, value);
+    }
+
+    fn read_opcode(&mut self, pc: u16, _ir: u16) -> u8 {
+        self.read_mem(pc)
     }
 }
 

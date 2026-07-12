@@ -65,6 +65,9 @@ mod tests {
         cpu.bus.write_mem(0x1601, 0xc9);
         // Patch RST10 location with HALT
         cpu.bus.write_mem(0x0010, 0x76);
+        // The test binary probes port 0xfe (XOR A / IN A,(0FEh) / CP 0BFh)
+        // and branches on the result, so the fixture expects it to read back 0xbf.
+        cpu.bus.io[0xfe] = 0xbf;
 
         cpu.registers.reg_pc = 0x8000;
         cpu.registers.set_sp(0);
@@ -110,6 +113,9 @@ mod tests {
         cpu.bus.write_mem(0x1601, 0xc9);
         // Patch RST10 location with HALT
         cpu.bus.write_mem(0x0010, 0x76);
+        // The test binary probes port 0xfe (XOR A / IN A,(0FEh) / CP 0BFh)
+        // and branches on the result, so the fixture expects it to read back 0xbf.
+        cpu.bus.io[0xfe] = 0xbf;
 
         cpu.registers.reg_pc = 0x8000;
         cpu.registers.set_sp(0);

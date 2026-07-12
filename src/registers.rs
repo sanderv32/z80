@@ -131,6 +131,33 @@ impl Registers {
         self.reg_sp = value;
     }
 
+    /// Get PC
+    #[must_use]
+    pub fn get_pc(&self) -> u16 {
+        self.reg_pc
+    }
+
+    /// Set PC
+    pub fn set_pc(&mut self, pc: u16) {
+        self.reg_pc = pc;
+    }
+
+    /// Set I register
+    pub fn set_i(&mut self, value: u8) {
+        self.reg_i = value;
+    }
+
+    /// Set R register
+    pub fn set_r(&mut self, value: u8) {
+        self.reg_r = value;
+    }
+
+    /// Get IR register (I in high byte, R in low byte)
+    #[must_use]
+    pub fn get_ir(&self) -> u16 {
+        u16::from(self.reg_i) << 8 | u16::from(self.reg_r)
+    }
+
     z80_reg_pair!(
         /// BC
         get_bc, set_bc, reg_b, reg_c
