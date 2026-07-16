@@ -331,7 +331,7 @@ impl<B: MemoryAccess + Io> Cpu<B> {
         self.registers.reg_f.h = (hl & 0x0fff) + (r1 & 0x0fff) + c > 0x0fff;
         self.registers.reg_f.c = u32::from(hl) + u32::from(r1) + u32::from(c) > 0xffff;
         self.registers.reg_f.p = {
-            let r = (hl as i16).overflowing_add((r1 + c) as i16);
+            let r = (hl as i16).overflowing_add((r1.wrapping_add(c)) as i16);
             r.1
         };
         self.registers.reg_f.n = false;
@@ -887,7 +887,9 @@ impl<B: MemoryAccess + Io> Cpu<B> {
         // set only once process_interrupt() has actually accepted the
         // interrupt this instruction boundary) is not fetched from memory, so
         // unlike a real M1 cycle it must not advance the program counter.
-        let opcode = if let Some(opcode) = self.int_ack.take() { opcode } else {
+        let opcode = if let Some(opcode) = self.int_ack.take() {
+            opcode
+        } else {
             let opcode = self
                 .bus
                 .read_opcode(self.registers.reg_pc, self.registers.get_ir());
@@ -3988,10 +3990,9 @@ impl<B: MemoryAccess + Io> Cpu<B> {
                     0xcb => {
                         // 0xddcb - IX Bit Instructions
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let opcode = self.bus.read_opcode(
-                            self.registers.reg_pc + 1,
-                            self.registers.get_ir(),
-                        );
+                        let opcode = self
+                            .bus
+                            .read_opcode(self.registers.reg_pc + 1, self.registers.get_ir());
                         self.registers.reg_pc += 2;
                         let ix = self.registers.get_ix();
                         let addr = if n & 0x80 == 0x80 {
@@ -5524,10 +5525,9 @@ impl<B: MemoryAccess + Io> Cpu<B> {
                     0xcb => {
                         // 0xfdcb - IY Bit Instructions
                         let n = self.bus.read_mem(self.registers.reg_pc);
-                        let opcode = self.bus.read_opcode(
-                            self.registers.reg_pc + 1,
-                            self.registers.get_ir(),
-                        );
+                        let opcode = self
+                            .bus
+                            .read_opcode(self.registers.reg_pc + 1, self.registers.get_ir());
                         self.registers.reg_pc += 2;
                         let iy = self.registers.get_iy();
                         let addr = if n & 0x80 == 0x80 {
